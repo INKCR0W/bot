@@ -39,13 +39,20 @@ func callbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		CallbackQueryID: update.CallbackQuery.ID,
 		ShowAlert:       false,
 	})
+	message := update.CallbackQuery.Message.Message
+	if message == nil {
+		return
+	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: update.CallbackQuery.Message.Message.Chat.ID,
+		ChatID: message.Chat.ID,
 		Text:   "You selected the button: " + update.CallbackQuery.Data,
 	})
 }
 
 func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	kb := &models.InlineKeyboardMarkup{
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{

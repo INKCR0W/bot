@@ -35,6 +35,9 @@ func main() {
 var images embed.FS
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	fileDataFacebook, _ := images.ReadFile("images/facebook.png")
 	fileDataYoutube, _ := images.ReadFile("images/youtube.png")
 

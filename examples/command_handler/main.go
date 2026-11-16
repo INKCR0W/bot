@@ -49,6 +49,9 @@ func barHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
 		Text:      "Say message with `/foo` anywhere or with `/bar` at start of the message",

@@ -32,6 +32,9 @@ func main() {
 }
 
 func helloHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message.From == nil {
+		return
+	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
 		Text:      "Hello, *" + bot.EscapeMarkdown(update.Message.From.FirstName) + "*",
@@ -40,6 +43,9 @@ func helloHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
 		Text:   "Say /hello",

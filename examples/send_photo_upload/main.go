@@ -32,6 +32,9 @@ func main() {
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	fileData, errReadFile := os.ReadFile("./examples/send_photo_upload/facebook.png")
 	if errReadFile != nil {
 		fmt.Printf("error read file, %v\n", errReadFile)

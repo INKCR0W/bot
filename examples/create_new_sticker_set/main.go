@@ -47,6 +47,9 @@ var images embed.FS
 var botUsername string
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	fileContent, _ := images.ReadFile("images/telegram.png")
 
 	inputSticker1 := models.InputSticker{

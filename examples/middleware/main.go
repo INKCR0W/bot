@@ -38,7 +38,7 @@ func main() {
 
 func showMessageWithUserID(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		if update.Message != nil {
+		if update.Message != nil && update.Message.From != nil {
 			log.Printf("%d say: %s", update.Message.From.ID, update.Message.Text)
 		}
 		next(ctx, b, update)
@@ -47,7 +47,7 @@ func showMessageWithUserID(next bot.HandlerFunc) bot.HandlerFunc {
 
 func showMessageWithUserName(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		if update.Message != nil {
+		if update.Message != nil && update.Message.From != nil {
 			log.Printf("%s say: %s", update.Message.From.FirstName, update.Message.Text)
 		}
 		next(ctx, b, update)
@@ -59,7 +59,12 @@ func singleFlight(next bot.HandlerFunc) bot.HandlerFunc {
 	sf := sync.Map{}
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if update.CallbackQuery != nil {
-			key := update.CallbackQuery.Message.Message.ID
+			message := update.CallbackQuery.Message.Message
+			if message == nil {
+				next(ctx, b, update)
+				return
+			}
+			key := message.ID
 			if _, loaded := sf.LoadOrStore(key, struct{}{}); loaded {
 				return
 			}
@@ -70,6 +75,9 @@ func singleFlight(next bot.HandlerFunc) bot.HandlerFunc {
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
 		Text:   update.Message.Text,
