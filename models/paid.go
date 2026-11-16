@@ -88,53 +88,95 @@ func (m *InputPaidMediaVideo) MarshalInputMedia() ([]byte, error) {
 type PaidMediaType string
 
 const (
-	PaidMediaTypePreview PaidMediaType = "preview"
-	PaidMediaTypePhoto   PaidMediaType = "photo"
-	PaidMediaTypeVideo   PaidMediaType = "video"
+	PaidMediaTypePreview   PaidMediaType = "preview"
+	PaidMediaTypePhoto     PaidMediaType = "photo"
+	PaidMediaTypeVideo     PaidMediaType = "video"
+	PaidMediaTypeLivePhoto PaidMediaType = "live_photo"
 )
 
 // PaidMedia https://core.telegram.org/bots/api#paidmedia
 type PaidMedia struct {
 	Type PaidMediaType
 
-	Preview *PaidMediaPreview
-	Photo   *PaidMediaPhoto
-	Video   *PaidMediaVideo
+	Preview   *PaidMediaPreview
+	Photo     *PaidMediaPhoto
+	Video     *PaidMediaVideo
+	LivePhoto *PaidMediaLivePhoto
+}
+
+func (p PaidMedia) MarshalJSON() ([]byte, error) {
+	switch p.Type {
+	case PaidMediaTypePreview:
+		return marshalVariant("PaidMedia", p.Type, p.Preview, func(v *PaidMediaPreview) { v.Type = p.Type })
+	case PaidMediaTypePhoto:
+		return marshalVariant("PaidMedia", p.Type, p.Photo, func(v *PaidMediaPhoto) { v.Type = p.Type })
+	case PaidMediaTypeVideo:
+		return marshalVariant("PaidMedia", p.Type, p.Video, func(v *PaidMediaVideo) { v.Type = p.Type })
+	case PaidMediaTypeLivePhoto:
+		return marshalVariant("PaidMedia", p.Type, p.LivePhoto, func(v *PaidMediaLivePhoto) { v.Type = string(p.Type) })
+	}
+
+	return marshalUnknownVariant("PaidMedia", "type", p.Type)
 }
 
 func (p *PaidMedia) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type PaidMediaType `json:"type"`
+		Type       PaidMediaType `json:"type"`
+		LegacyType PaidMediaType `json:"Type"`
 	}{}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
+	}
+	legacy := v.Type == "" && v.LegacyType != ""
+	if legacy {
+		v.Type = v.LegacyType
 	}
 
 	if v.Type == "" {
 		return missingDiscriminator("PaidMedia")
 	}
 
-	p.Type = v.Type
-
+	decoded := PaidMedia{Type: v.Type}
+	var variant any
+	var archivedField string
 	switch v.Type {
 	case PaidMediaTypePreview:
-		p.Preview = &PaidMediaPreview{}
-		return json.Unmarshal(data, p.Preview)
+		decoded.Preview = &PaidMediaPreview{}
+		variant, archivedField = decoded.Preview, "Preview"
 	case PaidMediaTypePhoto:
-		p.Photo = &PaidMediaPhoto{}
-		return json.Unmarshal(data, p.Photo)
+		decoded.Photo = &PaidMediaPhoto{}
+		variant, archivedField = decoded.Photo, "Photo"
 	case PaidMediaTypeVideo:
-		p.Video = &PaidMediaVideo{}
-		return json.Unmarshal(data, p.Video)
+		decoded.Video = &PaidMediaVideo{}
+		variant, archivedField = decoded.Video, "Video"
+	case PaidMediaTypeLivePhoto:
+		decoded.LivePhoto = &PaidMediaLivePhoto{}
+		variant = decoded.LivePhoto
 	}
 
+	if legacy && archivedField != "" {
+		archived, err := archivedVariantField(data, archivedField, string(v.Type))
+		if err != nil {
+			return err
+		}
+		if archived != nil {
+			data = archived
+		}
+	}
+	if variant != nil {
+		if err := json.Unmarshal(data, variant); err != nil {
+			return err
+		}
+	}
+
+	*p = decoded
 	return nil
 }
 
 // PaidMediaPreview https://core.telegram.org/bots/api#paidmediapreview
 type PaidMediaPreview struct {
-	Type PaidMediaType
+	Type PaidMediaType `json:"type"`
 
 	Width    int `json:"width,omitempty"`
 	Height   int `json:"height,omitempty"`
@@ -143,14 +185,14 @@ type PaidMediaPreview struct {
 
 // PaidMediaPhoto https://core.telegram.org/bots/api#paidmediaphoto
 type PaidMediaPhoto struct {
-	Type PaidMediaType
+	Type PaidMediaType `json:"type"`
 
 	Photo []PhotoSize `json:"photo"`
 }
 
 // PaidMediaVideo https://core.telegram.org/bots/api#paidmediavideo
 type PaidMediaVideo struct {
-	Type PaidMediaType
+	Type PaidMediaType `json:"type"`
 
 	Video Video `json:"video"`
 }

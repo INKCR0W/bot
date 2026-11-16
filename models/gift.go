@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // Gifts https://core.telegram.org/bots/api#gifts
@@ -35,10 +36,11 @@ type Gift struct {
 
 // AcceptedGiftTypes https://core.telegram.org/bots/api#acceptedgifttypes
 type AcceptedGiftTypes struct {
-	UnlimitedGifts    bool `json:"unlimited_gifts"`
-	LimitedGifts      bool `json:"limited_gifts"`
-	UniqueGifts       bool `json:"unique_gifts"`
-	GiftsFromChannels bool `json:"gifts_from_channels,omitempty"`
+	UnlimitedGifts      bool `json:"unlimited_gifts"`
+	LimitedGifts        bool `json:"limited_gifts"`
+	UniqueGifts         bool `json:"unique_gifts"`
+	PremiumSubscription bool `json:"premium_subscription"`
+	GiftsFromChannels   bool `json:"gifts_from_channels"` // Telegram defaults this to true if omitted
 }
 
 // OwnedGift https://core.telegram.org/bots/api#ownedgift
@@ -49,9 +51,22 @@ type OwnedGift struct {
 	OwnedGiftUnique  *OwnedGiftUnique
 }
 
+func (g OwnedGift) MarshalJSON() ([]byte, error) {
+	switch g.Type {
+	case OwnedGiftTypeRegular:
+		return marshalVariant("OwnedGift", g.Type, g.OwnedGiftRegular, func(v *OwnedGiftRegular) { v.Type = g.Type })
+	case OwnedGiftTypeUnique:
+		return marshalVariant("OwnedGift", g.Type, g.OwnedGiftUnique, func(v *OwnedGiftUnique) { v.Type = g.Type })
+	}
+
+	return marshalUnknownVariant("OwnedGift", "type", g.Type)
+}
+
 func (g *OwnedGift) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type OwnedGiftType `json:"type"`
+		Type    OwnedGiftType   `json:"type"`
+		Regular json.RawMessage `json:"OwnedGiftRegular"`
+		Unique  json.RawMessage `json:"OwnedGiftUnique"`
 	}{}
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
@@ -61,22 +76,69 @@ func (g *OwnedGift) UnmarshalJSON(data []byte) error {
 		return missingDiscriminator("OwnedGift")
 	}
 
-	g.Type = v.Type
-
+	decoded := OwnedGift{Type: v.Type}
+	var variant any
+	var archivedField string
+	var sender **User
 	switch v.Type {
 	case OwnedGiftTypeRegular:
-		g.OwnedGiftRegular = &OwnedGiftRegular{
+		decoded.OwnedGiftRegular = &OwnedGiftRegular{
 			Type: OwnedGiftTypeRegular,
 		}
-		return json.Unmarshal(data, g.OwnedGiftRegular)
+		variant, archivedField = decoded.OwnedGiftRegular, "OwnedGiftRegular"
+		sender = &decoded.OwnedGiftRegular.SenderUser
 	case OwnedGiftTypeUnique:
-		g.OwnedGiftUnique = &OwnedGiftUnique{
+		decoded.OwnedGiftUnique = &OwnedGiftUnique{
 			Type: OwnedGiftTypeUnique,
 		}
-		return json.Unmarshal(data, g.OwnedGiftUnique)
+		variant, archivedField = decoded.OwnedGiftUnique, "OwnedGiftUnique"
+		sender = &decoded.OwnedGiftUnique.SenderUser
 	}
 
+	if variant != nil {
+		var archived []byte
+		if v.Regular != nil && v.Unique != nil {
+			var err error
+			archived, err = archivedOwnedGift(data, archivedField, string(v.Type))
+			if err != nil {
+				return err
+			}
+			if archived != nil {
+				data = archived
+			}
+		}
+		if err := json.Unmarshal(data, variant); err != nil {
+			return err
+		}
+		if archived != nil {
+			var archive struct {
+				SenderUser *archivedUser `json:"sender_user"`
+			}
+			if err := json.Unmarshal(archived, &archive); err != nil {
+				return err
+			}
+			*sender = (*User)(archive.SenderUser)
+		}
+	}
+
+	*g = decoded
 	return nil
+}
+
+func archivedOwnedGift(data []byte, field, tag string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if fields["OwnedGiftRegular"] == nil || fields["OwnedGiftUnique"] == nil {
+		return nil, nil
+	}
+	for key := range fields {
+		if strings.EqualFold(key, "gift") || strings.EqualFold(key, "send_date") {
+			return nil, nil
+		}
+	}
+	return archivedVariant(fields[field], tag)
 }
 
 // OwnedGiftType https://core.telegram.org/bots/api#ownedgift

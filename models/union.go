@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 // marshalVariant encodes the populated variant of a tagged union such as
@@ -42,4 +43,38 @@ func marshalUnknownVariant[K ~string](union, field string, tag K) ([]byte, error
 // tag to keep, and MarshalJSON would reject the empty Type on the way back out.
 func missingDiscriminator(union string) error {
 	return fmt.Errorf("%s object without a discriminator", union)
+}
+
+func archivedVariantField(data []byte, field, tag string) ([]byte, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	return archivedVariant(fields[field], tag)
+}
+
+// archivedVariant recognizes the nested Go struct emitted by older versions
+// without confusing fields such as a transaction's Telegram User with a variant.
+func archivedVariant(nested []byte, tag string) ([]byte, error) {
+	if len(nested) == 0 || nested[0] != '{' {
+		return nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(nested, &fields); err != nil {
+		return nil, err
+	}
+	typ := fields["type"]
+	if typ == nil {
+		typ = fields["Type"]
+	}
+	switch string(typ) {
+	case strconv.Quote(tag):
+		return nested, nil
+	case `""`:
+		// The old encoder wrote a blank nested type for caller-constructed variants.
+		delete(fields, "Type")
+		fields["type"] = json.RawMessage(strconv.Quote(tag))
+		return json.Marshal(fields)
+	}
+	return nil, nil
 }

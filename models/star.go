@@ -29,45 +29,94 @@ type TransactionPartner struct {
 	Other            *TransactionPartnerOther            `json:"other,omitempty"`
 }
 
+func (m TransactionPartner) MarshalJSON() ([]byte, error) {
+	switch m.Type {
+	case TransactionPartnerTypeUser:
+		return marshalVariant("TransactionPartner", m.Type, m.User, func(v *TransactionPartnerUser) { v.Type = m.Type })
+	case TransactionPartnerTypeChat:
+		return marshalVariant("TransactionPartner", m.Type, m.Chat, func(v *TransactionPartnerChat) { v.Type = m.Type })
+	case TransactionPartnerTypeAffiliateProgram:
+		return marshalVariant("TransactionPartner", m.Type, m.AffiliateProgram, func(v *TransactionPartnerAffiliateProgram) { v.Type = m.Type })
+	case TransactionPartnerTypeFragment:
+		return marshalVariant("TransactionPartner", m.Type, m.Fragment, func(v *TransactionPartnerFragment) { v.Type = m.Type })
+	case TransactionPartnerTypeTelegramAds:
+		return marshalVariant("TransactionPartner", m.Type, m.TelegramAds, func(v *TransactionPartnerTelegramAds) { v.Type = m.Type })
+	case TransactionPartnerTypeTelegramApi:
+		return marshalVariant("TransactionPartner", m.Type, m.TelegramApi, func(v *TransactionPartnerTelegramApi) { v.Type = m.Type })
+	case TransactionPartnerTypeOther:
+		return marshalVariant("TransactionPartner", m.Type, m.Other, func(v *TransactionPartnerOther) { v.Type = m.Type })
+	}
+
+	return marshalUnknownVariant("TransactionPartner", "type", m.Type)
+}
+
 func (m *TransactionPartner) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type TransactionPartnerType `json:"type"`
+		Type       TransactionPartnerType `json:"type"`
+		LegacyType TransactionPartnerType `json:"Type"`
 	}{}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
+	}
+	legacy := v.Type == "" && v.LegacyType != ""
+	if legacy {
+		v.Type = v.LegacyType
 	}
 
 	if v.Type == "" {
 		return missingDiscriminator("TransactionPartner")
 	}
 
-	m.Type = v.Type
-
+	decoded := TransactionPartner{Type: v.Type}
+	var variant any
 	switch v.Type {
 	case TransactionPartnerTypeUser:
-		m.User = &TransactionPartnerUser{}
-		return json.Unmarshal(data, m.User)
+		decoded.User = &TransactionPartnerUser{}
+		variant = decoded.User
 	case TransactionPartnerTypeChat:
-		m.Chat = &TransactionPartnerChat{}
-		return json.Unmarshal(data, m.Chat)
+		decoded.Chat = &TransactionPartnerChat{}
+		variant = decoded.Chat
 	case TransactionPartnerTypeAffiliateProgram:
-		m.AffiliateProgram = &TransactionPartnerAffiliateProgram{}
-		return json.Unmarshal(data, m.AffiliateProgram)
+		decoded.AffiliateProgram = &TransactionPartnerAffiliateProgram{}
+		variant = decoded.AffiliateProgram
 	case TransactionPartnerTypeFragment:
-		m.Fragment = &TransactionPartnerFragment{}
-		return json.Unmarshal(data, m.Fragment)
+		decoded.Fragment = &TransactionPartnerFragment{}
+		variant = decoded.Fragment
 	case TransactionPartnerTypeTelegramAds:
-		m.TelegramAds = &TransactionPartnerTelegramAds{}
-		return json.Unmarshal(data, m.TelegramAds)
+		decoded.TelegramAds = &TransactionPartnerTelegramAds{}
+		variant = decoded.TelegramAds
 	case TransactionPartnerTypeTelegramApi:
-		m.TelegramApi = &TransactionPartnerTelegramApi{}
-		return json.Unmarshal(data, m.TelegramApi)
+		decoded.TelegramApi = &TransactionPartnerTelegramApi{}
+		variant = decoded.TelegramApi
 	case TransactionPartnerTypeOther:
-		m.Other = &TransactionPartnerOther{}
-		return json.Unmarshal(data, m.Other)
+		decoded.Other = &TransactionPartnerOther{}
+		variant = decoded.Other
 	}
 
+	var archived []byte
+	if legacy && variant != nil {
+		archived, err = archivedVariantField(data, string(v.Type), string(v.Type))
+		if err != nil {
+			return err
+		}
+		if archived != nil {
+			data = archived
+		}
+	}
+	switch {
+	case archived != nil && decoded.User != nil:
+		err = decoded.User.unmarshalArchive(data)
+	case archived != nil && decoded.AffiliateProgram != nil:
+		err = decoded.AffiliateProgram.unmarshalArchive(data)
+	case variant != nil:
+		err = json.Unmarshal(data, variant)
+	}
+	if err != nil {
+		return err
+	}
+
+	*m = decoded
 	return nil
 }
 
@@ -90,8 +139,44 @@ type TransactionPartnerUser struct {
 	SubscriptionPeriod          int                    `json:"subscription_period,omitempty"`
 	PaidMedia                   []*PaidMedia           `json:"paid_media,omitempty"`
 	PaidMediaPayload            string                 `json:"paid_media_payload,omitempty"`
-	Gift                        string                 `json:"gift,omitempty"`
+	Gift                        *Gift                  `json:"gift,omitempty"`
 	PremiumSubscriptionDuration int                    `json:"premium_subscription_duration,omitempty"`
+}
+
+func (m *TransactionPartnerUser) unmarshalArchive(data []byte) error {
+	type userFields TransactionPartnerUser
+	type affiliateFields struct {
+		AffiliateInfo
+		AffiliateUser *archivedUser `json:"affiliate_user"`
+	}
+	archive := struct {
+		*userFields
+		User      archivedUser     `json:"user"`
+		Affiliate *affiliateFields `json:"affiliate"`
+		Gift      json.RawMessage  `json:"gift"`
+	}{userFields: (*userFields)(m)}
+	if err := json.Unmarshal(data, &archive); err != nil {
+		return err
+	}
+	m.User = User(archive.User)
+	if archive.Affiliate != nil {
+		archive.Affiliate.AffiliateInfo.AffiliateUser = (*User)(archive.Affiliate.AffiliateUser)
+		m.Affiliate = &archive.Affiliate.AffiliateInfo
+	}
+	if len(archive.Gift) == 0 {
+		return nil
+	}
+	if archive.Gift[0] == '"' {
+		var id string
+		if err := json.Unmarshal(archive.Gift, &id); err != nil {
+			return err
+		}
+		if id != "" {
+			m.Gift = &Gift{ID: id}
+		}
+		return nil
+	}
+	return json.Unmarshal(archive.Gift, &m.Gift)
 }
 
 // TransactionPartnerChat https://core.telegram.org/bots/api#transactionpartnerchat
@@ -106,6 +191,18 @@ type TransactionPartnerAffiliateProgram struct {
 	Type               TransactionPartnerType `json:"type"`
 	SponsorUser        *User                  `json:"sponsor_user,omitempty"`
 	CommissionPerMille int                    `json:"commission_per_mille"`
+}
+
+func (m *TransactionPartnerAffiliateProgram) unmarshalArchive(data []byte) error {
+	archive := struct {
+		*TransactionPartnerAffiliateProgram
+		SponsorUser *archivedUser `json:"sponsor_user"`
+	}{TransactionPartnerAffiliateProgram: m}
+	if err := json.Unmarshal(data, &archive); err != nil {
+		return err
+	}
+	m.SponsorUser = (*User)(archive.SponsorUser)
+	return nil
 }
 
 // TransactionPartnerFragment https://core.telegram.org/bots/api#transactionpartnerfragment
@@ -147,9 +244,27 @@ type RevenueWithdrawalState struct {
 	Failed    *RevenueWithdrawalStateFailed    `json:"failed,omitempty"`
 }
 
+func (m RevenueWithdrawalState) MarshalJSON() ([]byte, error) {
+	switch m.Type {
+	case RevenueWithdrawalStateTypePending:
+		return marshalVariant("RevenueWithdrawalState", m.Type, m.Pending, func(v *RevenueWithdrawalStatePending) { v.Type = m.Type })
+	case RevenueWithdrawalStateTypeSucceeded:
+		return marshalVariant("RevenueWithdrawalState", m.Type, m.Succeeded, func(v *RevenueWithdrawalStateSucceeded) { v.Type = m.Type })
+	case RevenueWithdrawalStateTypeFailed:
+		return marshalVariant("RevenueWithdrawalState", m.Type, m.Failed, func(v *RevenueWithdrawalStateFailed) { v.Type = m.Type })
+	}
+
+	return marshalUnknownVariant("RevenueWithdrawalState", "type", m.Type)
+}
+
 func (m *RevenueWithdrawalState) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type RevenueWithdrawalStateType `json:"type"`
+		Type      RevenueWithdrawalStateType `json:"type"`
+		Pending   json.RawMessage            `json:"pending"`
+		Succeeded json.RawMessage            `json:"succeeded"`
+		Failed    json.RawMessage            `json:"failed"`
+		Date      json.RawMessage            `json:"date"`
+		URL       json.RawMessage            `json:"url"`
 	}{}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
@@ -160,20 +275,40 @@ func (m *RevenueWithdrawalState) UnmarshalJSON(data []byte) error {
 		return missingDiscriminator("RevenueWithdrawalState")
 	}
 
-	m.Type = v.Type
-
+	decoded := RevenueWithdrawalState{Type: v.Type}
+	var variant any
+	var archived json.RawMessage
 	switch v.Type {
 	case RevenueWithdrawalStateTypePending:
-		m.Pending = &RevenueWithdrawalStatePending{}
-		return json.Unmarshal(data, m.Pending)
+		decoded.Pending = &RevenueWithdrawalStatePending{}
+		variant, archived = decoded.Pending, v.Pending
 	case RevenueWithdrawalStateTypeSucceeded:
-		m.Succeeded = &RevenueWithdrawalStateSucceeded{}
-		return json.Unmarshal(data, m.Succeeded)
+		decoded.Succeeded = &RevenueWithdrawalStateSucceeded{}
+		variant = decoded.Succeeded
+		if v.Date == nil && v.URL == nil {
+			archived = v.Succeeded
+		}
 	case RevenueWithdrawalStateTypeFailed:
-		m.Failed = &RevenueWithdrawalStateFailed{}
-		return json.Unmarshal(data, m.Failed)
+		decoded.Failed = &RevenueWithdrawalStateFailed{}
+		variant, archived = decoded.Failed, v.Failed
 	}
 
+	if variant != nil {
+		if archived != nil {
+			nested, err := archivedVariantField(data, string(v.Type), string(v.Type))
+			if err != nil {
+				return err
+			}
+			if nested != nil {
+				data = nested
+			}
+		}
+		if err := json.Unmarshal(data, variant); err != nil {
+			return err
+		}
+	}
+
+	*m = decoded
 	return nil
 }
 

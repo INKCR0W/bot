@@ -92,6 +92,10 @@ func TestPolymorphicMarshal_UnknownDiscriminator(t *testing.T) {
 		{"ChatMember", &ChatMember{}},
 		{"ReactionType", &ReactionType{}},
 		{"ChatBoostSource", &ChatBoostSource{}},
+		{"OwnedGift", &OwnedGift{}},
+		{"TransactionPartner", &TransactionPartner{}},
+		{"RevenueWithdrawalState", &RevenueWithdrawalState{}},
+		{"PaidMedia", &PaidMedia{}},
 		{"MenuButton", &MenuButton{}},
 		{"MessageOrigin", &MessageOrigin{}},
 		{"BackgroundType", &BackgroundType{}},
@@ -140,6 +144,10 @@ func TestPolymorphicMarshal_EmptyDiscriminator(t *testing.T) {
 		{"ChatMember", &ChatMember{}},
 		{"ReactionType", &ReactionType{}},
 		{"ChatBoostSource", &ChatBoostSource{}},
+		{"OwnedGift", &OwnedGift{}},
+		{"TransactionPartner", &TransactionPartner{}},
+		{"RevenueWithdrawalState", &RevenueWithdrawalState{}},
+		{"PaidMedia", &PaidMedia{}},
 		{"MenuButton", &MenuButton{}},
 		{"MessageOrigin", &MessageOrigin{}},
 		{"BackgroundType", &BackgroundType{}},
@@ -157,6 +165,65 @@ func TestPolymorphicMarshal_EmptyDiscriminator(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestArchivedUnionMarshal_NilVariant(t *testing.T) {
+	for _, value := range []any{
+		OwnedGift{Type: OwnedGiftTypeRegular},
+		TransactionPartner{Type: TransactionPartnerTypeUser},
+		RevenueWithdrawalState{Type: RevenueWithdrawalStateTypeSucceeded},
+		PaidMedia{Type: PaidMediaTypePhoto},
+	} {
+		if _, err := json.Marshal(value); err == nil {
+			t.Errorf("%T accepted a known discriminator with a nil variant", value)
+		}
+	}
+}
+
+func TestArchivedUnionMarshal_DoesNotChangeVariant(t *testing.T) {
+	photo := &PaidMediaPhoto{Photo: []PhotoSize{{FileID: "photo-42"}}}
+	media := PaidMedia{Type: PaidMediaTypePhoto, Photo: photo}
+	data, err := json.Marshal(media)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if photo.Type != "" {
+		t.Fatalf("marshal changed original type to %q", photo.Type)
+	}
+	var decoded PaidMedia
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Photo == nil || decoded.Photo.Type != PaidMediaTypePhoto {
+		t.Fatalf("missing discriminator on encoded photo: %s", data)
+	}
+}
+
+func assertTaggedRoundTrip[T any](t *testing.T, src, tag string) T {
+	t.Helper()
+	var value T
+	if err := json.Unmarshal([]byte(src), &value); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	out, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(out, &fields); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if string(fields["type"]) != `"`+tag+`"` {
+		t.Fatalf("expected lowercase discriminator %q, got %s", tag, out)
+	}
+	var roundTripped T
+	if err := json.Unmarshal(out, &roundTripped); err != nil {
+		t.Fatalf("decode round trip: %v", err)
+	}
+	if !reflect.DeepEqual(value, roundTripped) {
+		t.Fatalf("round trip lost data: input %s, encoded %s", src, out)
+	}
+	return value
 }
 
 // ReactionTypePaid is a known variant since Bot API 7.6, but MarshalJSON never had a

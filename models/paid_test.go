@@ -88,3 +88,30 @@ func TestPaidMedia_UnmarshalJSON_Video(t *testing.T) {
 		t.Fatal("wrong duration")
 	}
 }
+
+func TestPaidMedia_RoundTrip(t *testing.T) {
+	for _, c := range []struct {
+		tag  string
+		data string
+	}{
+		{"preview", `{"type":"preview","width":42,"height":43,"duration":44}`},
+		{"photo", `{"type":"photo","photo":[{"file_id":"photo-42","width":42,"height":43}]}`},
+		{"video", `{"type":"video","video":{"file_id":"video-42","width":42,"height":43,"duration":44}}`},
+		{"live_photo", `{"type":"live_photo","live_photo":{"file_id":"live-42","width":42,"height":43,"duration":44}}`},
+	} {
+		t.Run(c.tag, func(t *testing.T) {
+			value := assertTaggedRoundTrip[PaidMedia](t, c.data, c.tag)
+			if c.tag == "live_photo" && (value.LivePhoto == nil || value.LivePhoto.LivePhoto.FileID != "live-42") {
+				t.Fatalf("live photo payload was not decoded: %+v", value.LivePhoto)
+			}
+		})
+	}
+}
+
+func TestPaidMedia_LegacyArchive(t *testing.T) {
+	const legacy = `{"Type":"photo","Preview":null,"Photo":{"Type":"","photo":[{"file_id":"photo-42","width":42}]},"Video":null}`
+	value := assertTaggedRoundTrip[PaidMedia](t, legacy, "photo")
+	if value.Photo == nil || value.Photo.Type != PaidMediaTypePhoto || len(value.Photo.Photo) != 1 || value.Photo.Photo[0].FileID != "photo-42" {
+		t.Fatalf("legacy archive lost photo information: %+v", value.Photo)
+	}
+}
