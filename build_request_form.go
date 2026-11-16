@@ -29,6 +29,10 @@ type mediaThumbnail interface {
 	GetThumbnail() models.InputFile
 }
 
+type mediaCover interface {
+	GetCover() (string, io.Reader)
+}
+
 var customMarshalInterface = reflect.TypeOf(new(customMarshal)).Elem()
 var inputMediaInterface = reflect.TypeOf(new(inputMedia)).Elem()
 
@@ -44,10 +48,11 @@ type formWriter interface {
 // are ambiguous and rejected, while one file referenced twice reuses the part already
 // written. A file part and a form field sharing a name are the same ambiguity.
 type requestForm struct {
-	w          formWriter
-	ctx        context.Context
-	fileParts  map[string]io.Reader
-	fieldNames map[string]struct{}
+	w               formWriter
+	ctx             context.Context
+	fileParts       map[string]io.Reader
+	fieldNames      map[string]struct{}
+	coverReferences []string
 }
 
 func newRequestForm(w formWriter) *requestForm {
@@ -87,6 +92,22 @@ func (f *requestForm) addFilePart(partName, filename string, data io.Reader) err
 	}
 	_, errCopy := io.Copy(w, data)
 	return errCopy
+}
+
+func (f *requestForm) addCoverAttachment(cover string, attachment io.Reader) error {
+	if !strings.HasPrefix(cover, "attach://") {
+		return nil
+	}
+	name := strings.TrimPrefix(cover, "attach://")
+	if name == "" {
+		return fmt.Errorf("empty name for video cover attachment")
+	}
+	if readerIsNil(attachment) {
+		// A later field or media item can supply the named file part.
+		f.coverReferences = append(f.coverReferences, name)
+		return nil
+	}
+	return f.addFilePart(name, name, attachment)
 }
 
 // uploadContextReader checks cancellation between reads without taking ownership of the reader.
@@ -247,6 +268,11 @@ func (form *requestForm) build(params any) (int, error) {
 		fieldsCount++
 	}
 
+	for _, cover := range form.coverReferences {
+		if !form.hasFilePart(cover) {
+			return 0, fmt.Errorf("missing video cover part for %q", "attach://"+cover)
+		}
+	}
 	return fieldsCount, nil
 }
 
@@ -272,11 +298,36 @@ func isNilValue(value any) bool {
 // sameReader reports whether two attachments are one reader, i.e. one file referenced
 // twice rather than two files claiming a single part name.
 func sameReader(a, b io.Reader) bool {
-	ta := reflect.TypeOf(a)
-	if ta == nil || ta != reflect.TypeOf(b) || !ta.Comparable() {
+	typ := reflect.TypeOf(a)
+	if typ == nil || typ != reflect.TypeOf(b) {
 		return false
 	}
-	return a == b
+	return isComparableValue(reflect.ValueOf(a)) && isComparableValue(reflect.ValueOf(b)) && a == b
+}
+
+// A comparable struct or array can contain an interface holding an incomparable
+// value. Check those values explicitly because Go 1.18 lacks reflect.Value.Comparable.
+func isComparableValue(v reflect.Value) bool {
+	if !v.Type().Comparable() {
+		return false
+	}
+	switch v.Kind() {
+	case reflect.Interface:
+		return v.IsNil() || isComparableValue(v.Elem())
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if !isComparableValue(v.Field(i)) {
+				return false
+			}
+		}
+	case reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			if !isComparableValue(v.Index(i)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func addFormFieldInputFileUpload(form *requestForm, fieldName string, value *models.InputFileUpload) error {
@@ -309,6 +360,11 @@ func addInputMediaAttachment(form *requestForm, value inputMedia) error {
 	}
 	if thumbnailed, ok := value.(mediaThumbnail); ok {
 		if err := addInputFileAttachment(form, thumbnailed.GetThumbnail()); err != nil {
+			return err
+		}
+	}
+	if covered, ok := value.(mediaCover); ok {
+		if err := form.addCoverAttachment(covered.GetCover()); err != nil {
 			return err
 		}
 	}

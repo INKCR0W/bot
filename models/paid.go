@@ -54,6 +54,9 @@ type InputPaidMediaVideo struct {
 	SupportsStreaming bool      `json:"supports_streaming,omitempty"`
 
 	MediaAttachment io.Reader `json:"-"`
+	// CoverAttachment supplies the named part when Cover uses attach://.
+	// Leave it nil to reference a part supplied elsewhere in the request.
+	CoverAttachment io.Reader `json:"-"`
 }
 
 func (m *InputPaidMediaVideo) inputPaidMediaTag() {}
@@ -64,6 +67,10 @@ func (m *InputPaidMediaVideo) Attachment() io.Reader {
 
 func (m *InputPaidMediaVideo) GetMedia() string {
 	return m.Media
+}
+
+func (m *InputPaidMediaVideo) GetCover() (string, io.Reader) {
+	return m.Cover, m.CoverAttachment
 }
 
 func (m *InputPaidMediaVideo) GetThumbnail() InputFile {

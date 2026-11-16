@@ -105,6 +105,9 @@ type InputMediaVideo struct {
 	HasSpoiler            bool            `json:"has_spoiler,omitempty"`
 
 	MediaAttachment io.Reader `json:"-"`
+	// CoverAttachment supplies the named part when Cover uses attach://.
+	// Leave it nil to reference a part supplied elsewhere in the request.
+	CoverAttachment io.Reader `json:"-"`
 }
 
 func (m *InputMediaVideo) Attachment() io.Reader {
@@ -113,6 +116,10 @@ func (m *InputMediaVideo) Attachment() io.Reader {
 
 func (m *InputMediaVideo) GetMedia() string {
 	return m.Media
+}
+
+func (m *InputMediaVideo) GetCover() (string, io.Reader) {
+	return m.Cover, m.CoverAttachment
 }
 
 func (m *InputMediaVideo) GetThumbnail() InputFile {
