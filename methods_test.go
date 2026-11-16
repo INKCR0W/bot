@@ -97,6 +97,50 @@ func assertEqualInt(t *testing.T, v, e int) {
 	}
 }
 
+func TestBot_SendMessageWithOptionalSelectionFilters(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		filter      *bool
+		userFilters string
+		chatFilters string
+	}{
+		{name: "omitted"},
+		{
+			name:        "explicit true",
+			filter:      True(),
+			userFilters: `,"user_is_bot":true,"user_is_premium":true`,
+			chatFilters: `,"chat_is_forum":true,"chat_has_username":true`,
+		},
+		{
+			name:        "explicit false",
+			filter:      False(),
+			userFilters: `,"user_is_bot":false,"user_is_premium":false`,
+			chatFilters: `,"chat_is_forum":false,"chat_has_username":false`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &httpClient{t: t, resp: `{"message_id":1}`, reqFields: map[string]string{
+				"reply_markup": `{"keyboard":[[{"text":"Users","request_users":{"request_id":1` + tt.userFilters + `}},` +
+					`{"text":"Chat","request_chat":{"request_id":2,"chat_is_channel":false` + tt.chatFilters + `}}]]}`,
+			}}
+			b := &Bot{client: c}
+			_, err := b.SendMessage(context.Background(), &SendMessageParams{
+				ChatID: 123,
+				Text:   "Select",
+				ReplyMarkup: models.ReplyKeyboardMarkup{Keyboard: [][]models.KeyboardButton{{
+					{Text: "Users", RequestUsers: &models.KeyboardButtonRequestUsers{
+						RequestID: 1, UserIsBot: tt.filter, UserIsPremium: tt.filter,
+					}},
+					{Text: "Chat", RequestChat: &models.KeyboardButtonRequestChat{
+						RequestID: 2, ChatIsForum: tt.filter, ChatHasUsername: tt.filter,
+					}},
+				}}},
+			})
+			assertNoErr(t, err)
+		})
+	}
+}
+
 func TestBot_Methods(t *testing.T) {
 	t.Parallel()
 
@@ -547,7 +591,7 @@ func TestBot_Methods(t *testing.T) {
 	})
 
 	t.Run("RevokeChatInviteLink", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `{"name":"foo"}`, reqFields: map[string]string{
+		c := &httpClient{t: t, resp: `{"name":"foo","subscription_period":2592000,"subscription_price":100}`, reqFields: map[string]string{
 			"chat_id": "123",
 		}}
 		b := &Bot{client: c}
@@ -556,6 +600,8 @@ func TestBot_Methods(t *testing.T) {
 		})
 		assertNoErr(t, err)
 		assertEqualString(t, "foo", resp.Name)
+		assertEqualInt(t, resp.SubscriptionPeriod, 2592000)
+		assertEqualInt(t, resp.SubscriptionPrice, 100)
 	})
 
 	t.Run("ApproveChatJoinRequest", func(t *testing.T) {
@@ -580,6 +626,57 @@ func TestBot_Methods(t *testing.T) {
 		})
 		assertNoErr(t, err)
 		assertTrue(t, resp)
+	})
+
+	t.Run("ChatJoinRequestQuery", func(t *testing.T) {
+		const queryID = "join-request-123"
+		var update models.Update
+		data := []byte(`{"update_id":1,"chat_join_request":{"chat":{"id":123,"type":"supergroup"},"from":{"id":456,"first_name":"User"},"user_chat_id":456,"date":1,"query_id":"join-request-123"}}`)
+		if err := json.Unmarshal(data, &update); err != nil {
+			t.Fatal(err)
+		}
+		if update.ChatJoinRequest == nil || update.ChatJoinRequest.QueryID != queryID {
+			t.Fatalf("expected the join request query ID, got %+v", update.ChatJoinRequest)
+		}
+
+		t.Run("answer", func(t *testing.T) {
+			c := &httpClient{
+				t:       t,
+				resp:    `true`,
+				reqPath: "/bot/answerChatJoinRequestQuery",
+				reqFields: map[string]string{
+					"chat_join_request_query_id": queryID,
+					"result":                     "queue",
+				},
+			}
+			b := &Bot{client: c}
+			resp, err := b.AnswerChatJoinRequestQuery(context.Background(), &AnswerChatJoinRequestQueryParams{
+				ChatJoinRequestQueryID: update.ChatJoinRequest.QueryID,
+				Result:                 models.ChatJoinRequestResultQueue,
+			})
+			assertNoErr(t, err)
+			assertTrue(t, resp)
+		})
+
+		t.Run("web app", func(t *testing.T) {
+			const webAppURL = "https://example.org/join"
+			c := &httpClient{
+				t:       t,
+				resp:    `true`,
+				reqPath: "/bot/sendChatJoinRequestWebApp",
+				reqFields: map[string]string{
+					"chat_join_request_query_id": queryID,
+					"web_app_url":                webAppURL,
+				},
+			}
+			b := &Bot{client: c}
+			resp, err := b.SendChatJoinRequestWebApp(context.Background(), &SendChatJoinRequestWebAppParams{
+				ChatJoinRequestQueryID: update.ChatJoinRequest.QueryID,
+				WebAppURL:              webAppURL,
+			})
+			assertNoErr(t, err)
+			assertTrue(t, resp)
+		})
 	})
 
 	t.Run("SetChatPhoto", func(t *testing.T) {

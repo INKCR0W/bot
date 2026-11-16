@@ -8,7 +8,21 @@ type ChatJoinRequest struct {
 	Date       int             `json:"date"`
 	Bio        string          `json:"bio,omitempty"`
 	InviteLink *ChatInviteLink `json:"invite_link,omitempty"`
+
+	// QueryID is present when the bot is assigned to respond to this request.
+	// When present, call AnswerChatJoinRequestQuery or SendChatJoinRequestWebApp
+	// within 10 seconds.
+	QueryID string `json:"query_id,omitempty"`
 }
+
+// ChatJoinRequestResult is the decision for an assigned chat join request query.
+type ChatJoinRequestResult string
+
+const (
+	ChatJoinRequestResultApprove ChatJoinRequestResult = "approve"
+	ChatJoinRequestResultDecline ChatJoinRequestResult = "decline"
+	ChatJoinRequestResultQueue   ChatJoinRequestResult = "queue"
+)
 
 // ChatPhoto https://core.telegram.org/bots/api#chatphoto
 type ChatPhoto struct {
@@ -29,6 +43,8 @@ type ChatInviteLink struct {
 	ExpireDate              int    `json:"expire_date,omitempty"`
 	MemberLimit             int    `json:"member_limit,omitempty"`
 	PendingJoinRequestCount int    `json:"pending_join_request_count,omitempty"`
+	SubscriptionPeriod      int    `json:"subscription_period,omitempty"` // Seconds between payments
+	SubscriptionPrice       int    `json:"subscription_price,omitempty"`  // Telegram Stars per payment
 }
 
 // ChatAdministratorRights https://core.telegram.org/bots/api#chatadministratorrights
@@ -54,6 +70,8 @@ type ChatAdministratorRights struct {
 }
 
 // ChatPermissions https://core.telegram.org/bots/api#chatpermissions
+// CanManageTopics, CanEditTag, and CanReactToMessages are sent even when false
+// because Telegram would otherwise inherit each from another permission.
 type ChatPermissions struct {
 	CanSendMessages       bool `json:"can_send_messages"`
 	CanSendAudios         bool `json:"can_send_audios"`
@@ -68,9 +86,9 @@ type ChatPermissions struct {
 	CanChangeInfo         bool `json:"can_change_info,omitempty"`
 	CanInviteUsers        bool `json:"can_invite_users,omitempty"`
 	CanPinMessages        bool `json:"can_pin_messages,omitempty"`
-	CanManageTopics       bool `json:"can_manage_topics,omitempty"`
-	CanEditTag            bool `json:"can_edit_tag,omitempty"`
-	CanReactToMessages    bool `json:"can_react_to_messages,omitempty"`
+	CanManageTopics       bool `json:"can_manage_topics"`
+	CanEditTag            bool `json:"can_edit_tag"`
+	CanReactToMessages    bool `json:"can_react_to_messages"`
 }
 
 // ChatLocation https://core.telegram.org/bots/api#chatlocation

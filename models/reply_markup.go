@@ -87,10 +87,11 @@ type KeyboardButtonRequestUser struct {
 }
 
 // KeyboardButtonRequestUsers https://core.telegram.org/bots/api#keyboardbuttonrequestusers
+// A nil filter is omitted. Use a pointer to false to select the opposite group.
 type KeyboardButtonRequestUsers struct {
 	RequestID       int32 `json:"request_id"`
-	UserIsBot       bool  `json:"user_is_bot,omitempty"`
-	UserIsPremium   bool  `json:"user_is_premium,omitempty"`
+	UserIsBot       *bool `json:"user_is_bot,omitempty"`
+	UserIsPremium   *bool `json:"user_is_premium,omitempty"`
 	MaxQuantity     int   `json:"max_quantity,omitempty"`
 	RequestName     bool  `json:"request_name,omitempty"`
 	RequestUsername bool  `json:"request_username,omitempty"`
@@ -98,11 +99,12 @@ type KeyboardButtonRequestUsers struct {
 }
 
 // KeyboardButtonRequestChat https://core.telegram.org/bots/api#keyboardbuttonrequestchat
+// A nil filter is omitted. Use a pointer to false to select the opposite group.
 type KeyboardButtonRequestChat struct {
 	RequestID               int32                    `json:"request_id"`
 	ChatIsChannel           bool                     `json:"chat_is_channel"`
-	ChatIsForum             bool                     `json:"chat_is_forum,omitempty"`
-	ChatHasUsername         bool                     `json:"chat_has_username,omitempty"`
+	ChatIsForum             *bool                    `json:"chat_is_forum,omitempty"`
+	ChatHasUsername         *bool                    `json:"chat_has_username,omitempty"`
 	ChatIsCreated           bool                     `json:"chat_is_created,omitempty"`
 	UserAdministratorRights *ChatAdministratorRights `json:"user_administrator_rights,omitempty"`
 	BotAdministratorRights  *ChatAdministratorRights `json:"bot_administrator_rights,omitempty"`
