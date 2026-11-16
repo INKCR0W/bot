@@ -933,6 +933,39 @@ func Test_buildRequestForm_topLevelTypedNilInputFile(t *testing.T) {
 	}
 }
 
+func Test_buildRequestForm_typedNilInputFileString(t *testing.T) {
+	var file *models.InputFileString
+	t.Run("optional", func(t *testing.T) {
+		params := SendVideoParams{
+			ChatID:    1,
+			Video:     &models.InputFileString{Data: "file_id"},
+			Thumbnail: file,
+		}
+		buf := bytes.NewBuffer(nil)
+		form := multipart.NewWriter(buf)
+		if _, err := buildRequestForm(form, &params); err != nil {
+			t.Fatal(err)
+		}
+		if err := form.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(buf.String(), "name=\"thumbnail\"") {
+			t.Fatal("nil optional thumbnail was written")
+		}
+		if !strings.Contains(buf.String(), "file_id") {
+			t.Fatal("video file ID was not written")
+		}
+	})
+
+	t.Run("required", func(t *testing.T) {
+		params := SendVideoParams{ChatID: 1, Video: file}
+		form := multipart.NewWriter(bytes.NewBuffer(nil))
+		if _, err := buildRequestForm(form, &params); err == nil || !strings.Contains(err.Error(), "nil value for field video") {
+			t.Fatalf("got %v, want error identifying the nil video", err)
+		}
+	})
+}
+
 // Same for a typed nil element of a media slice.
 func Test_buildRequestForm_typedNilMediaSliceItem(t *testing.T) {
 	params := SendMediaGroupParams{

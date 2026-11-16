@@ -96,23 +96,36 @@ func TestWebhookHandler_Success(t *testing.T) {
 }
 
 func TestWebhookHandler_ReadBodyError(t *testing.T) {
-	debugHandler := &mockDebugHandler{}
 	errorsHandler := &mockErrorsHandler{}
+	delivered := make(chan *models.Update, 1)
 
 	bot := &Bot{
-		debugHandler: func(format string, args ...any) {
-			debugHandler.Handle(format, args...)
+		workers: 1,
+		defaultHandlerFunc: func(_ context.Context, _ *Bot, update *models.Update) {
+			delivered <- update
 		},
 		errorsHandler: func(err error) {
 			errorsHandler.Handle(err)
 		},
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := startWebhookForTest(t, bot, ctx)
 
 	req := httptest.NewRequest(http.MethodPost, "/", errReader(errors.New("read error")))
 	w := httptest.NewRecorder()
 
 	handler := bot.WebhookHandler()
 	handler(w, req)
+	cancel()
+	waitForUpdateTest(t, stopped, "webhook to stop")
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("webhook status %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if len(delivered) != 0 {
+		t.Error("webhook delivered an update after the body read failed")
+	}
 
 	if got := w.Result().StatusCode; got != http.StatusBadRequest {
 		t.Errorf("status for unreadable request body = %d, want %d", got, http.StatusBadRequest)

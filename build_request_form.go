@@ -2,6 +2,7 @@ package bot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,6 +45,7 @@ type formWriter interface {
 // written. A file part and a form field sharing a name are the same ambiguity.
 type requestForm struct {
 	w          formWriter
+	ctx        context.Context
 	fileParts  map[string]io.Reader
 	fieldNames map[string]struct{}
 }
@@ -80,8 +82,24 @@ func (f *requestForm) addFilePart(partName, filename string, data io.Reader) err
 		return errCreatePart
 	}
 	f.fileParts[partName] = data
+	if f.ctx != nil && f.ctx.Done() != nil {
+		data = uploadContextReader{ctx: f.ctx, reader: data}
+	}
 	_, errCopy := io.Copy(w, data)
 	return errCopy
+}
+
+// uploadContextReader checks cancellation between reads without taking ownership of the reader.
+type uploadContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r uploadContextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 // addFieldPart writes value as the form field fieldName.
@@ -104,7 +122,10 @@ func (f *requestForm) addFieldPart(fieldName string, value io.Reader) error {
 // buildRequestForm builds form-data for request
 // if params contains InputFile of type InputFileUpload, it will be added to form-data ad upload file. Also, for InputMedia attachments
 func buildRequestForm(w *multipart.Writer, params any) (int, error) {
-	form := newRequestForm(w)
+	return newRequestForm(w).build(params)
+}
+
+func (form *requestForm) build(params any) (int, error) {
 	v := reflect.ValueOf(params).Elem()
 
 	var fieldsCount int
@@ -187,6 +208,12 @@ func buildRequestForm(w *multipart.Writer, params any) (int, error) {
 		case *models.InputFileUpload:
 			err = addFormFieldInputFileUpload(form, fieldName, vv)
 		case *models.InputFileString:
+			if vv == nil {
+				if omitempty {
+					continue
+				}
+				return 0, fmt.Errorf("nil value for field %s", fieldName)
+			}
 			err = addFormFieldString(form, fieldName, vv.Data)
 		case *models.InputMediaLivePhoto:
 			err = addFormFieldInputMedia(form, fieldName, vv)

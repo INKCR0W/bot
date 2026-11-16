@@ -33,13 +33,22 @@ type apiResponse struct {
 // without a Content-Type, as local telegram-bot-api servers reject an empty
 // multipart body.
 func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest any) error {
+	if ctx == nil {
+		return fmt.Errorf("nil context for method %s", method)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	var bodyBuf bytes.Buffer
 	form := multipart.NewWriter(&bodyBuf)
 
 	var fieldsCount int
 	if params != nil && !reflect.ValueOf(params).IsNil() {
+		requestForm := newRequestForm(form)
+		requestForm.ctx = ctx
 		var errFormData error
-		fieldsCount, errFormData = buildRequestForm(form, params)
+		fieldsCount, errFormData = requestForm.build(params)
 		if errFormData != nil {
 			return fmt.Errorf("error build request form for method %s, %w", method, errFormData)
 		}
@@ -75,6 +84,9 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 		req.Header.Set("Content-Type", contentType)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	resp, errDo := b.client.Do(req)
 	if errDo != nil {
 		var netErr *url.Error

@@ -14,6 +14,38 @@ type InputMedia interface {
 	GetMedia() string
 }
 
+// InputMediaLink is an HTTP link that can be sent as media for a poll option.
+// See https://core.telegram.org/bots/api#inputmedialink.
+type InputMediaLink struct {
+	URL string `json:"url"`
+}
+
+func (*InputMediaLink) Attachment() io.Reader {
+	return nil
+}
+
+func (*InputMediaLink) GetMedia() string {
+	return ""
+}
+
+type inputMediaLinkAlias InputMediaLink
+
+func (m InputMediaLink) MarshalInputMedia() ([]byte, error) {
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		inputMediaLinkAlias
+	}{
+		Type:                "link",
+		inputMediaLinkAlias: inputMediaLinkAlias(m),
+	})
+}
+
+func (m InputMediaLink) MarshalJSON() ([]byte, error) {
+	return m.MarshalInputMedia()
+}
+
+func (InputMediaLink) inputMediaTag() {}
+
 // InputMediaPhoto https://core.telegram.org/bots/api#inputmediaphoto
 type InputMediaPhoto struct {
 	Media                 string          `json:"media"`

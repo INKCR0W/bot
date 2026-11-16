@@ -1,6 +1,9 @@
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 // PollAnswer https://core.telegram.org/bots/api#pollanswer
 type PollAnswer struct {
@@ -26,7 +29,8 @@ func (o InputPollOption) MarshalJSON() ([]byte, error) {
 		TextEntities  []MessageEntity `json:"text_entities,omitempty"`
 	}
 	b := base{Text: o.Text, TextParseMode: o.TextParseMode, TextEntities: o.TextEntities}
-	if o.Media == nil {
+	media := reflect.ValueOf(o.Media)
+	if !media.IsValid() || (media.Kind() == reflect.Pointer && media.IsNil()) {
 		return json.Marshal(b)
 	}
 	raw, err := o.Media.MarshalInputMedia()
@@ -59,12 +63,18 @@ type PollMedia struct {
 	Animation *Animation  `json:"animation,omitempty"`
 	Audio     *Audio      `json:"audio,omitempty"`
 	Document  *Document   `json:"document,omitempty"`
+	Link      *Link       `json:"link,omitempty"`
 	LivePhoto *LivePhoto  `json:"live_photo,omitempty"`
 	Location  *Location   `json:"location,omitempty"`
 	Photo     []PhotoSize `json:"photo,omitempty"`
 	Sticker   *Sticker    `json:"sticker,omitempty"`
 	Venue     *Venue      `json:"venue,omitempty"`
 	Video     *Video      `json:"video,omitempty"`
+}
+
+// Link https://core.telegram.org/bots/api#link
+type Link struct {
+	URL string `json:"url"`
 }
 
 // Poll https://core.telegram.org/bots/api#poll

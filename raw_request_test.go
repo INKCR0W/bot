@@ -3,6 +3,7 @@ package bot
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -24,6 +25,57 @@ func (c *clientMock) Do(req *http.Request) (*http.Response, error) {
 		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
 	}
 	return &resp, nil
+}
+
+type uploadReadFunc func([]byte) (int, error)
+
+func (f uploadReadFunc) Read(p []byte) (int, error) {
+	return f(p)
+}
+
+func TestSendDocument_DoesNotReadAfterCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		wantReads int
+	}{
+		{"already canceled", 0},
+		{"canceled during read", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if test.wantReads == 0 {
+				cancel()
+			}
+
+			reads := 0
+			cm := &clientMock{}
+			b := &Bot{token: "XXX", client: cm}
+			_, err := b.SendDocument(ctx, &SendDocumentParams{
+				ChatID: 1,
+				Document: &models.InputFileUpload{
+					Filename: "document.txt",
+					Data: uploadReadFunc(func(p []byte) (int, error) {
+						reads++
+						if reads > 1 {
+							return 0, io.EOF
+						}
+						cancel()
+						return copy(p, "first chunk"), nil
+					}),
+				},
+			})
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("got %v, want context.Canceled", err)
+			}
+			if reads != test.wantReads {
+				t.Errorf("upload reader called %d times, want %d", reads, test.wantReads)
+			}
+			if cm.gotReq != nil {
+				t.Error("canceled request was sent")
+			}
+		})
+	}
 }
 
 func Test_rawRequest_url(t *testing.T) {
@@ -67,10 +119,15 @@ func Test_rawRequest_url_testEnv(t *testing.T) {
 func Test_rawRequest_setsGetBody(t *testing.T) {
 	cm := &clientMock{}
 	b := &Bot{token: "XXX", client: cm}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	err := b.rawRequest(context.Background(), "sendMessage", &SendMessageParams{
+	err := b.rawRequest(ctx, "sendDocument", &SendDocumentParams{
 		ChatID: 123,
-		Text:   "hello",
+		Document: &models.InputFileUpload{
+			Filename: "document.txt",
+			Data:     strings.NewReader("document contents"),
+		},
 	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -122,11 +179,11 @@ func Test_rawRequest_setsGetBody(t *testing.T) {
 	if !bytes.Contains(original, []byte(`name="chat_id"`)) {
 		t.Errorf("body missing chat_id field")
 	}
-	if !bytes.Contains(original, []byte(`name="text"`)) {
-		t.Errorf("body missing text field")
+	if !bytes.Contains(original, []byte(`name="document"; filename="document.txt"`)) {
+		t.Errorf("body missing document attachment")
 	}
-	if !bytes.Contains(original, []byte("hello")) {
-		t.Errorf("body missing text value")
+	if !bytes.Contains(original, []byte("document contents")) {
+		t.Errorf("body missing document contents")
 	}
 }
 
