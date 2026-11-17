@@ -172,11 +172,10 @@ Content-Disposition: form-data; name="input_sticker_slice"
 	assertFormData(t, buf.String(), expect)
 }
 
-func Test_addFormFieldInputMedia_nilAttachment(t *testing.T) {
+func Test_buildRequestForm_inputMediaNilAttachment(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputMedia(form, "media", &models.InputMediaPhoto{
-		Media: "attach://photo.png",
+	_, err := buildRequestForm(writer, &EditMessageMediaParams{
+		Media: &models.InputMediaPhoto{Media: "attach://photo.png"},
 	})
 	if err == nil {
 		t.Fatal("expected error for attach:// with nil MediaAttachment")
@@ -345,12 +344,13 @@ Content-Disposition: form-data; name="rich_message"
 	assertFormData(t, buf.String(), expect)
 }
 
-func Test_addFormFieldInputRichMessage_nilAttachment(t *testing.T) {
+func Test_buildRequestForm_richMessageNilAttachment(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputRichMessage(form, "rich_message", &models.InputRichMessage{
-		Media: []models.InputRichMessageMedia{
-			{ID: "doc1", Media: &models.InputMediaDocument{Media: "attach://doc1.pdf"}},
+	_, err := buildRequestForm(writer, &SendRichMessageParams{
+		RichMessage: models.InputRichMessage{
+			Media: []models.InputRichMessageMedia{
+				{ID: "doc1", Media: &models.InputMediaDocument{Media: "attach://doc1.pdf"}},
+			},
 		},
 	})
 	if err == nil {
@@ -427,12 +427,13 @@ Content-Disposition: form-data; name="paid_media"
 	assertFormData(t, buf.String(), expect)
 }
 
-func Test_addFormFieldInputMedia_nilThumbnailData(t *testing.T) {
+func Test_buildRequestForm_inputMediaNilThumbnailData(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputMedia(form, "media", &models.InputMediaVideo{
-		Media:     "file_id",
-		Thumbnail: &models.InputFileUpload{Filename: "thumb.jpg"},
+	_, err := buildRequestForm(writer, &EditMessageMediaParams{
+		Media: &models.InputMediaVideo{
+			Media:     "file_id",
+			Thumbnail: &models.InputFileUpload{Filename: "thumb.jpg"},
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error for thumbnail with nil Data")
@@ -626,19 +627,20 @@ func Test_addInputRichBlockAttachments_missingVariant(t *testing.T) {
 	assertEqualString(t, formFileNames(t, buf.String(), "XXX"), "")
 }
 
-func Test_addFormFieldInputRichMessage_nilAttachmentInNestedBlock(t *testing.T) {
+func Test_buildRequestForm_richMessageNilAttachmentInNestedBlock(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputRichMessage(form, "rich_message", &models.InputRichMessage{
-		Blocks: []models.InputRichBlock{
-			{
-				Type: models.RichBlockTypeCollage,
-				InputRichBlockCollage: &models.InputRichBlockCollage{
-					Blocks: []models.InputRichBlock{
-						{
-							Type: models.RichBlockTypeDocument,
-							InputRichBlockDocument: &models.InputRichBlockDocument{
-								Document: models.InputMediaDocument{Media: "attach://doc1.pdf"},
+	_, err := buildRequestForm(writer, &SendRichMessageParams{
+		RichMessage: models.InputRichMessage{
+			Blocks: []models.InputRichBlock{
+				{
+					Type: models.RichBlockTypeCollage,
+					InputRichBlockCollage: &models.InputRichBlockCollage{
+						Blocks: []models.InputRichBlock{
+							{
+								Type: models.RichBlockTypeDocument,
+								InputRichBlockDocument: &models.InputRichBlockDocument{
+									Document: models.InputMediaDocument{Media: "attach://doc1.pdf"},
+								},
 							},
 						},
 					},
@@ -654,19 +656,24 @@ func Test_addFormFieldInputRichMessage_nilAttachmentInNestedBlock(t *testing.T) 
 	}
 }
 
-func Test_addInputRichBlockAttachments_nilAttachmentInListItem(t *testing.T) {
+func Test_buildRequestForm_richMessageNilAttachmentInListItem(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addInputRichBlockAttachments(form, models.InputRichBlock{
-		Type: models.RichBlockTypeList,
-		InputRichBlockList: &models.InputRichBlockList{
-			Items: []models.InputRichBlockListItem{
+	_, err := buildRequestForm(writer, &SendRichMessageParams{
+		RichMessage: models.InputRichMessage{
+			Blocks: []models.InputRichBlock{
 				{
-					Blocks: []models.InputRichBlock{
-						{
-							Type: models.RichBlockTypeDocument,
-							InputRichBlockDocument: &models.InputRichBlockDocument{
-								Document: models.InputMediaDocument{Media: "attach://doc1.pdf"},
+					Type: models.RichBlockTypeList,
+					InputRichBlockList: &models.InputRichBlockList{
+						Items: []models.InputRichBlockListItem{
+							{
+								Blocks: []models.InputRichBlock{
+									{
+										Type: models.RichBlockTypeDocument,
+										InputRichBlockDocument: &models.InputRichBlockDocument{
+											Document: models.InputMediaDocument{Media: "attach://doc1.pdf"},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -720,12 +727,13 @@ func Test_addFormFieldInputMedia_livePhoto(t *testing.T) {
 	assertEqualString(t, formFileNames(t, buf.String(), "XXX"), "live.jpg,live.mov")
 }
 
-func Test_addFormFieldInputMedia_livePhotoNilPhotoAttachment(t *testing.T) {
+func Test_buildRequestForm_livePhotoNilPhotoAttachment(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputMedia(form, "media", &models.InputMediaLivePhoto{
-		Media: "file_id",
-		Photo: "attach://live.mov",
+	_, err := buildRequestForm(writer, &EditMessageMediaParams{
+		Media: &models.InputMediaLivePhoto{
+			Media: "file_id",
+			Photo: "attach://live.mov",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error for attach:// with nil PhotoAttachment")

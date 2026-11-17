@@ -43,16 +43,28 @@ type formWriter interface {
 	CreateFormFile(fieldName, filename string) (io.Writer, error)
 }
 
+type fileReference struct {
+	name           string
+	missingMessage string
+}
+
+type formFile struct {
+	partName string
+	filename string
+	data     io.Reader
+}
+
 // requestForm tracks the names of the parts written to one request. A part name is
 // what an attach:// reference resolves against, so two different files under one name
 // are ambiguous and rejected, while one file referenced twice reuses the part already
 // written. A file part and a form field sharing a name are the same ambiguity.
 type requestForm struct {
-	w               formWriter
-	ctx             context.Context
-	fileParts       map[string]io.Reader
-	fieldNames      map[string]struct{}
-	coverReferences []string
+	w              formWriter
+	ctx            context.Context
+	fileParts      map[string]io.Reader
+	fieldNames     map[string]struct{}
+	fileReferences []fileReference
+	pendingFiles   []formFile
 }
 
 func newRequestForm(w formWriter) *requestForm {
@@ -63,18 +75,18 @@ func newRequestForm(w formWriter) *requestForm {
 	}
 }
 
-// hasFilePart reports whether a file part of that name is written, i.e. an attach://
-// reference to it already resolves and needs no attachment of its own.
+// hasFilePart reports whether a file part of that name has been supplied.
+// It may still be pending validation before being written.
 func (f *requestForm) hasFilePart(partName string) bool {
 	_, ok := f.fileParts[partName]
 	return ok
 }
 
-// addFilePart writes data as the file part partName. Repeating a name with the same
-// reader, or with none, references the file already uploaded under it.
+// addFilePart registers data as the file part partName. Repeating a name with the
+// same reader, or with none, references the file already supplied under it.
 func (f *requestForm) addFilePart(partName, filename string, data io.Reader) error {
-	if written, ok := f.fileParts[partName]; ok {
-		if readerIsNil(data) || sameReader(written, data) {
+	if supplied, ok := f.fileParts[partName]; ok {
+		if readerIsNil(data) || sameReader(supplied, data) {
 			return nil
 		}
 		return fmt.Errorf("duplicate form part name %q", partName)
@@ -82,16 +94,39 @@ func (f *requestForm) addFilePart(partName, filename string, data io.Reader) err
 	if _, ok := f.fieldNames[partName]; ok {
 		return fmt.Errorf("duplicate form part name %q", partName)
 	}
-	w, errCreatePart := f.w.CreateFormFile(partName, filename)
+	file := formFile{partName: partName, filename: filename, data: data}
+	if len(f.fileReferences) > 0 {
+		// Wait until all references resolve before consuming any later reader.
+		f.pendingFiles = append(f.pendingFiles, file)
+		f.fileParts[partName] = data
+		return nil
+	}
+	return f.writeFilePart(file)
+}
+
+func (f *requestForm) writeFilePart(file formFile) error {
+	w, errCreatePart := f.w.CreateFormFile(file.partName, file.filename)
 	if errCreatePart != nil {
 		return errCreatePart
 	}
-	f.fileParts[partName] = data
+	data := file.data
+	f.fileParts[file.partName] = data
 	if f.ctx != nil && f.ctx.Done() != nil {
 		data = uploadContextReader{ctx: f.ctx, reader: data}
 	}
 	_, errCopy := io.Copy(w, data)
 	return errCopy
+}
+
+func (f *requestForm) addReferencedFile(name string, attachment io.Reader, missingMessage string) error {
+	if !readerIsNil(attachment) {
+		return f.addFilePart(name, name, attachment)
+	}
+	if !f.hasFilePart(name) {
+		// A later field or media item can supply the named file part.
+		f.fileReferences = append(f.fileReferences, fileReference{name: name, missingMessage: missingMessage})
+	}
+	return nil
 }
 
 func (f *requestForm) addCoverAttachment(cover string, attachment io.Reader) error {
@@ -102,12 +137,18 @@ func (f *requestForm) addCoverAttachment(cover string, attachment io.Reader) err
 	if name == "" {
 		return fmt.Errorf("empty name for video cover attachment")
 	}
-	if readerIsNil(attachment) {
-		// A later field or media item can supply the named file part.
-		f.coverReferences = append(f.coverReferences, name)
+	return f.addReferencedFile(name, attachment, fmt.Sprintf("missing video cover part for %q", cover))
+}
+
+func (f *requestForm) addMediaAttachment(media string, attachment io.Reader, label string) error {
+	if !strings.HasPrefix(media, "attach://") {
 		return nil
 	}
-	return f.addFilePart(name, name, attachment)
+	name := strings.TrimPrefix(media, "attach://")
+	if name == "" {
+		return fmt.Errorf("empty name for %s", label)
+	}
+	return f.addReferencedFile(name, attachment, "nil "+label+" for "+media)
 }
 
 // uploadContextReader checks cancellation between reads without taking ownership of the reader.
@@ -250,6 +291,8 @@ func (form *requestForm) build(params any) (int, error) {
 				ss = append(ss, m)
 			}
 			err = addFormFieldInputMediaSlice(form, fieldName, ss)
+		case []models.InputPollOption:
+			err = addFormFieldPollOptions(form, fieldName, vv)
 		case []models.InlineQueryResult:
 			err = addFormFieldInlineQueryResultSlice(form, fieldName, vv)
 		case []models.InputSticker:
@@ -268,9 +311,14 @@ func (form *requestForm) build(params any) (int, error) {
 		fieldsCount++
 	}
 
-	for _, cover := range form.coverReferences {
-		if !form.hasFilePart(cover) {
-			return 0, fmt.Errorf("missing video cover part for %q", "attach://"+cover)
+	for _, reference := range form.fileReferences {
+		if !form.hasFilePart(reference.name) {
+			return 0, fmt.Errorf("%s", reference.missingMessage)
+		}
+	}
+	for _, file := range form.pendingFiles {
+		if err := form.writeFilePart(file); err != nil {
+			return 0, err
 		}
 	}
 	return fieldsCount, nil
@@ -349,12 +397,8 @@ func addFormFieldInputMediaItem(form *requestForm, value inputMedia) ([]byte, er
 
 // addInputMediaAttachment adds the attach:// upload parts referenced by a media item, if any.
 func addInputMediaAttachment(form *requestForm, value inputMedia) error {
-	if strings.HasPrefix(value.GetMedia(), "attach://") {
-		filename := strings.TrimPrefix(value.GetMedia(), "attach://")
-		if !form.hasFilePart(filename) && readerIsNil(value.Attachment()) {
-			return fmt.Errorf("nil attachment for attach://%s", filename)
-		}
-		if err := form.addFilePart(filename, filename, value.Attachment()); err != nil {
+	if media := value.GetMedia(); strings.HasPrefix(media, "attach://") {
+		if err := form.addMediaAttachment(media, value.Attachment(), "attachment"); err != nil {
 			return err
 		}
 	}
@@ -368,14 +412,11 @@ func addInputMediaAttachment(form *requestForm, value inputMedia) error {
 			return err
 		}
 	}
-	if live, ok := value.(*models.InputMediaLivePhoto); ok && strings.HasPrefix(live.Photo, "attach://") {
-		filename := strings.TrimPrefix(live.Photo, "attach://")
-		if !form.hasFilePart(filename) && readerIsNil(live.PhotoAttachment) {
-			return fmt.Errorf("nil PhotoAttachment for attach://%s", filename)
-		}
-		if err := form.addFilePart(filename, filename, live.PhotoAttachment); err != nil {
-			return err
-		}
+	switch live := value.(type) {
+	case *models.InputMediaLivePhoto:
+		return form.addMediaAttachment(live.Photo, live.PhotoAttachment, "PhotoAttachment")
+	case *models.InputPaidMediaLivePhoto:
+		return form.addMediaAttachment(live.Photo, live.PhotoAttachment, "PhotoAttachment")
 	}
 	return nil
 }
@@ -392,10 +433,7 @@ func addInputFileAttachment(form *requestForm, value models.InputFile) error {
 	if upload.Filename == "" {
 		return fmt.Errorf("empty filename for nested upload, it is the attach:// reference")
 	}
-	if !form.hasFilePart(upload.Filename) && readerIsNil(upload.Data) {
-		return fmt.Errorf("nil data for attach://%s", upload.Filename)
-	}
-	return form.addFilePart(upload.Filename, upload.Filename, upload.Data)
+	return form.addReferencedFile(upload.Filename, upload.Data, "nil data for attach://"+upload.Filename)
 }
 
 func addFormFieldCustomMarshal(form *requestForm, fieldName string, value customMarshal) error {
@@ -433,6 +471,18 @@ func addFormFieldInputMediaSlice(form *requestForm, fieldName string, value []in
 	}
 
 	return form.addFieldPart(fieldName, strings.NewReader("["+strings.Join(lines, ",")+"]"))
+}
+
+func addFormFieldPollOptions(form *requestForm, fieldName string, options []models.InputPollOption) error {
+	for _, option := range options {
+		if isNilValue(option.Media) {
+			continue
+		}
+		if err := addInputMediaAttachment(form, option.Media); err != nil {
+			return err
+		}
+	}
+	return addFormFieldDefault(form, fieldName, options)
 }
 
 // addFormFieldInputRichMessage adds the attach:// uploads referenced by a rich message

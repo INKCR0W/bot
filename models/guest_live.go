@@ -1,5 +1,10 @@
 package models
 
+import (
+	"encoding/json"
+	"io"
+)
+
 // SentGuestMessage https://core.telegram.org/bots/api#sentguestmessage
 type SentGuestMessage struct {
 	InlineMessageID string `json:"inline_message_id"`
@@ -25,9 +30,27 @@ type PaidMediaLivePhoto struct {
 
 // InputPaidMediaLivePhoto https://core.telegram.org/bots/api#inputpaidmedialivephoto
 type InputPaidMediaLivePhoto struct {
-	Type  string `json:"type"`
-	Media string `json:"media"`
-	Photo string `json:"photo"`
+	Type            string    `json:"type"`
+	Media           string    `json:"media"`
+	Photo           string    `json:"photo"`
+	MediaAttachment io.Reader `json:"-"`
+	PhotoAttachment io.Reader `json:"-"`
+}
+
+func (*InputPaidMediaLivePhoto) inputPaidMediaTag() {}
+
+func (m *InputPaidMediaLivePhoto) Attachment() io.Reader {
+	return m.MediaAttachment
+}
+
+func (m *InputPaidMediaLivePhoto) GetMedia() string {
+	return m.Media
+}
+
+func (m *InputPaidMediaLivePhoto) MarshalInputMedia() ([]byte, error) {
+	media := *m
+	media.Type = string(PaidMediaTypeLivePhoto)
+	return json.Marshal(media)
 }
 
 // BotAccessSettings https://core.telegram.org/bots/api#botaccesssettings
