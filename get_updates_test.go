@@ -3,9 +3,13 @@ package bot
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -86,8 +90,8 @@ func Test_getUpdates_skipsUndecodableUpdate(t *testing.T) {
 
 	delivered := runGetUpdates(ctx, b)
 
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 102 {
-		t.Fatalf("offset must move past the bad update, lastUpdateID=%d", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 103 {
+		t.Fatalf("offset must move past the bad update, nextUpdateOffset=%d", got)
 	}
 	if len(delivered) != 2 {
 		t.Fatalf("expected 2 delivered updates, got %d", len(delivered))
@@ -233,8 +237,8 @@ func Test_getUpdates_ignoresUpdateWithoutID(t *testing.T) {
 
 	delivered := runGetUpdates(ctx, b)
 
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 500 {
-		t.Fatalf("offset must stay at the last real update, lastUpdateID=%d", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 501 {
+		t.Fatalf("offset must stay after the last real update, nextUpdateOffset=%d", got)
 	}
 	if len(delivered) != 1 {
 		t.Fatalf("expected only the real update to be delivered, got %d", len(delivered))
@@ -523,8 +527,8 @@ func TestBot_StartResumesAfterUpdateWhosePreparationExits(t *testing.T) {
 		b.Start(context.Background())
 	}()
 	waitForUpdateTest(t, stopped, "polling to stop after its only worker exits")
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 8 {
-		t.Errorf("last update ID = %d, want 8", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 9 {
+		t.Errorf("next update offset = %d, want 9", got)
 	}
 }
 
@@ -537,7 +541,7 @@ func TestBot_StartWithNegativeOffsetKeepsUndispatchedUpdate(t *testing.T) {
 	var handled []int64
 	firstStarted := make(chan struct{})
 	restarted := false
-	b, err := New("xxx", WithSkipGetMe(), WithNotAsyncHandlers(), WithInitialOffset(-3), WithErrorsHandler(func(error) {}),
+	b, err := New("xxx", WithSkipGetMe(), WithNotAsyncHandlers(), WithInitialOffset(-2), WithErrorsHandler(func(error) {}),
 		WithDefaultHandler(func(ctx context.Context, _ *Bot, update *models.Update) {
 			mx.Lock()
 			handled = append(handled, update.ID)
@@ -619,7 +623,7 @@ func TestBot_StartWithNegativeOffsetKeepsUndispatchedUpdate(t *testing.T) {
 // any update is dispatched.
 func Test_getUpdates_negativeOffsetResumesFromBatch(t *testing.T) {
 	requested := make(chan struct{})
-	b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(-3),
+	b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(-2),
 		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
 			if req.FormValue("offset") != "-2" {
 				<-req.Context().Done()
@@ -642,8 +646,8 @@ func Test_getUpdates_negativeOffsetResumesFromBatch(t *testing.T) {
 	waitForUpdateTest(t, requested, "poll with the negative offset")
 	cancel()
 	waitForUpdateTest(t, stopped, "polling to stop")
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 99 {
-		t.Errorf("last update ID = %d, want 99", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 100 {
+		t.Errorf("next update offset = %d, want 100", got)
 	}
 }
 
@@ -703,8 +707,8 @@ func TestBot_StartConfirmsUpdateCanceledDuringPreparation(t *testing.T) {
 	if got := atomic.LoadInt32(&handled); got != 1 {
 		t.Errorf("handled %d times, want 1", got)
 	}
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 7 {
-		t.Errorf("last update ID = %d, want 7", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 8 {
+		t.Errorf("next update offset = %d, want 8", got)
 	}
 }
 
@@ -739,7 +743,359 @@ func TestBot_StartConfirmsDispatchedUpdatesWhenCanceledWhileQueuing(t *testing.T
 	waitForUpdateTest(t, firstStarted, "first handler to start")
 	cancel()
 	waitForUpdateTest(t, stopped, "polling to stop")
-	if got := atomic.LoadInt64(&b.lastUpdateID); got != 1 {
-		t.Errorf("last update ID = %d, want 1", got)
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 2 {
+		t.Errorf("next update offset = %d, want 2", got)
+	}
+}
+
+func TestBot_InitialPollingOffset(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		offset      int64
+		wantInitial string
+		wantAfter   string
+	}{
+		{name: "positive", offset: 100, wantInitial: "100", wantAfter: "100"},
+		{name: "zero", offset: 0, wantInitial: "0", wantAfter: "0"},
+		{name: "negative", offset: -1, wantInitial: "-1", wantAfter: "0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var offsets []string
+			b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(tt.offset),
+				WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+					offsets = append(offsets, req.FormValue("offset"))
+					if len(offsets) == 1 {
+						return getUpdatesJSONResponse(`{"ok":true,"result":[]}`), nil
+					}
+					cancel()
+					return nil, req.Context().Err()
+				})),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.Start(ctx)
+
+			if len(offsets) != 2 || offsets[0] != tt.wantInitial || offsets[1] != tt.wantAfter {
+				t.Errorf("poll offsets = %q, want [%q %q]", offsets, tt.wantInitial, tt.wantAfter)
+			}
+		})
+	}
+}
+
+func TestBot_NegativeOffsetAfterPollFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		conflict      string
+		offsetApplied bool
+		wantRetry     string
+		wantDelivered []int64
+	}{
+		{
+			name:          "truncated response",
+			offsetApplied: true,
+			wantRetry:     "0",
+			wantDelivered: []int64{42, 43},
+		},
+		{
+			name:          "webhook active",
+			conflict:      "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first",
+			wantRetry:     "-1",
+			wantDelivered: []int64{43},
+		},
+		{
+			name:          "long poll interrupted",
+			conflict:      "Conflict: terminated by setWebhook request",
+			offsetApplied: true,
+			wantRetry:     "0",
+			wantDelivered: []int64{42, 43},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testNegativeOffsetAfterPollFailure(t, tt.conflict, tt.offsetApplied, tt.wantRetry, tt.wantDelivered)
+		})
+	}
+}
+
+func testNegativeOffsetAfterPollFailure(t *testing.T, conflict string, offsetApplied bool, wantRetry string, wantDelivered []int64) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pending := []models.Update{{ID: 40}, {ID: 42}}
+	var offsets []string
+	var delivered []int64
+	var pollErrors []error
+	b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(-1), WithNotAsyncHandlers(),
+		WithErrorsHandler(func(err error) { pollErrors = append(pollErrors, err) }),
+		WithDefaultHandler(func(_ context.Context, _ *Bot, update *models.Update) {
+			delivered = append(delivered, update.ID)
+		}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			offset := req.FormValue("offset")
+			offsets = append(offsets, offset)
+			if len(offsets) == 3 {
+				cancel()
+				return nil, req.Context().Err()
+			}
+			isFirstPoll := len(offsets) == 1
+			if offset == "-1" && (!isFirstPoll || offsetApplied) {
+				pending = pending[len(pending)-1:]
+			}
+			if isFirstPoll {
+				pending = append(pending, models.Update{ID: 43})
+				if conflict != "" {
+					resp := getUpdatesJSONResponse(fmt.Sprintf(`{"ok":false,"error_code":409,"description":%q}`, conflict))
+					resp.StatusCode = http.StatusConflict
+					return resp, nil
+				}
+				return getUpdatesJSONResponse(`{"ok":true,"result":[{"update_id":42}`), nil
+			}
+			result, err := json.Marshal(pending)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return getUpdatesJSONResponse(`{"ok":true,"result":` + string(result) + `}`), nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Start(ctx)
+
+	if want := []string{"-1", wantRetry, "44"}; !reflect.DeepEqual(offsets, want) {
+		t.Errorf("poll offsets = %q, want %q", offsets, want)
+	}
+	if !reflect.DeepEqual(delivered, wantDelivered) {
+		t.Errorf("delivered updates = %v, want %v", delivered, wantDelivered)
+	}
+	if len(pollErrors) != 1 {
+		t.Fatalf("poll errors = %v, want one", pollErrors)
+	}
+	if conflict != "" && (!errors.Is(pollErrors[0], ErrorConflict) || !strings.Contains(pollErrors[0].Error(), conflict)) {
+		t.Errorf("poll error %v must wrap ErrorConflict and include the server description %q", pollErrors[0], conflict)
+	}
+}
+
+func TestBot_NegativeOffsetAfterPollingRestart(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		firstReply func() (*http.Response, error)
+		wantError  error
+		want       []string
+	}{
+		{
+			name: "canceled during transport",
+			firstReply: func() (*http.Response, error) {
+				return nil, context.Canceled
+			},
+			want: []string{"-1", "0"},
+		},
+		{
+			name: "Telegram rate limit",
+			firstReply: func() (*http.Response, error) {
+				resp := getUpdatesJSONResponse(`{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 1","parameters":{"retry_after":1}}`)
+				resp.StatusCode = http.StatusTooManyRequests
+				return resp, nil
+			},
+			want: []string{"-1", "-1"},
+		},
+		{
+			name: "Telegram rejected token",
+			firstReply: func() (*http.Response, error) {
+				resp := getUpdatesJSONResponse(`{"ok":false,"error_code":401,"description":"Unauthorized: invalid token specified"}`)
+				resp.StatusCode = http.StatusUnauthorized
+				return resp, nil
+			},
+			wantError: ErrorUnauthorized,
+			want:      []string{"-1", "-1"},
+		},
+		{
+			name: "custom transport returns rate limit type",
+			firstReply: func() (*http.Response, error) {
+				return nil, &TooManyRequestsError{RetryAfter: 1}
+			},
+			want: []string{"-1", "0"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			firstCtx, cancelFirst := context.WithCancel(context.Background())
+			defer cancelFirst()
+			restartCtx, cancelRestart := context.WithCancel(context.Background())
+			defer cancelRestart()
+
+			var offsets []string
+			var restarting bool
+			b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(-1),
+				WithErrorsHandler(func(err error) {
+					if tt.wantError != nil && !errors.Is(err, tt.wantError) {
+						t.Errorf("poll error = %v, want %v", err, tt.wantError)
+					}
+					cancelFirst()
+				}),
+				WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+					offsets = append(offsets, req.FormValue("offset"))
+					if restarting {
+						cancelRestart()
+						return nil, restartCtx.Err()
+					}
+					resp, err := tt.firstReply()
+					if errors.Is(err, context.Canceled) {
+						cancelFirst()
+					}
+					return resp, err
+				})),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.Start(firstCtx)
+			restarting = true
+			b.Start(restartCtx)
+
+			if !reflect.DeepEqual(offsets, tt.want) {
+				t.Errorf("poll offsets = %q, want %q", offsets, tt.want)
+			}
+		})
+	}
+}
+
+// A request canceled before it is sent must not run beforeDispatch, which
+// gives up a negative offset as if the request had reached Telegram.
+func TestBot_RawRequestCanceledBeforeDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b, err := New("xxx", WithSkipGetMe(), WithHTTPClient(time.Second, getUpdatesClientFunc(func(*http.Request) (*http.Response, error) {
+		t.Error("request dispatched despite cancellation")
+		return nil, errors.New("unexpected request")
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatched := false
+	var updates []json.RawMessage
+	errRequest := b.rawRequestWithToken(ctx, b.Token(), "getUpdates", &getUpdatesParams{Offset: -1}, &updates, func() { dispatched = true })
+	if !errors.Is(errRequest, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", errRequest)
+	}
+	if dispatched {
+		t.Error("beforeDispatch ran for a canceled request")
+	}
+}
+
+func TestBot_NegativeOffsetAfterRequestPreparationFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	restartCtx, cancelRestart := context.WithCancel(context.Background())
+	defer cancelRestart()
+
+	var offsets []string
+	var prepareErr error
+	var restarting bool
+	b, err := New("123:invalid\ntoken", WithSkipGetMe(), WithInitialOffset(-1),
+		WithErrorsHandler(func(err error) {
+			prepareErr = err
+			cancel()
+		}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			offsets = append(offsets, req.FormValue("offset"))
+			if !restarting {
+				t.Fatal("request with malformed token reached the HTTP client")
+			}
+			cancelRestart()
+			return nil, restartCtx.Err()
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Start(ctx)
+	if prepareErr == nil {
+		t.Fatal("malformed request was not reported")
+	}
+
+	b.SetToken("123:valid")
+	restarting = true
+	b.Start(restartCtx)
+	if !reflect.DeepEqual(offsets, []string{"-1"}) {
+		t.Errorf("poll offsets = %q, want [-1]", offsets)
+	}
+}
+
+func TestBot_NegativeOffsetAfterDialFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		redirect   bool
+		wantOffset string
+	}{
+		{name: "first dial refused", wantOffset: "-1"},
+		{name: "redirected dial refused", redirect: true, wantOffset: "0"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			firstCtx, cancelFirst := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelFirst()
+			restartCtx, cancelRestart := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelRestart()
+
+			listener, err := net.Listen("tcp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			refusedURL := "http://" + listener.Addr().String()
+
+			firstURL := refusedURL
+			if tt.redirect {
+				redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if got := r.FormValue("offset"); got != "-1" {
+						t.Errorf("offset received before redirect = %q, want -1", got)
+					}
+					http.Redirect(w, r, refusedURL, http.StatusTemporaryRedirect)
+				}))
+				defer redirect.Close()
+				firstURL = redirect.URL
+			}
+
+			resumedOffsets := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				resumedOffsets <- r.FormValue("offset")
+				w.WriteHeader(http.StatusNoContent)
+				cancelRestart()
+			}))
+			defer server.Close()
+
+			var pollErr error
+			client := &http.Client{Transport: &http.Transport{}, Timeout: 5 * time.Second}
+			defer client.CloseIdleConnections()
+			b, err := New("xxx", WithSkipGetMe(), WithInitialOffset(-1), WithServerURL(firstURL),
+				WithHTTPClient(time.Second, client),
+				WithErrorsHandler(func(err error) {
+					if firstCtx.Err() == nil {
+						pollErr = err
+						cancelFirst()
+					}
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := listener.Close(); err != nil {
+				t.Fatal(err)
+			}
+			b.Start(firstCtx)
+			var dialErr *net.OpError
+			if !errors.As(pollErr, &dialErr) || dialErr.Op != "dial" {
+				t.Fatalf("poll error = %v, want dial failure", pollErr)
+			}
+
+			WithServerURL(server.URL)(b)
+			b.Start(restartCtx)
+			if got := waitForUpdateTest(t, resumedOffsets, "first resumed poll"); got != tt.wantOffset {
+				t.Errorf("resumed offset = %q, want %q", got, tt.wantOffset)
+			}
+		})
 	}
 }

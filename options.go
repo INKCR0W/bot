@@ -143,9 +143,13 @@ func WithNotAsyncHandlers() Option {
 	}
 }
 
-// WithInitialOffset allows to set initial offset for getUpdates method
+// WithInitialOffset sets the initial getUpdates offset. A negative offset starts
+// at that position from the end of the queue and discards older updates. It is
+// retried when the SDK can establish that the request never reached Telegram
+// or that Telegram rejected it before applying the offset. If the outcome is
+// uncertain, polling resumes from the earliest unconfirmed update.
 func WithInitialOffset(offset int64) Option {
 	return func(b *Bot) {
-		b.lastUpdateID = offset
+		b.nextUpdateOffset = offset
 	}
 }

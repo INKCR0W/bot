@@ -32,7 +32,7 @@ type MatchFunc func(update *models.Update) bool
 
 // Bot represents Telegram Bot main object
 type Bot struct {
-	lastUpdateID int64
+	nextUpdateOffset int64
 
 	url                string
 	token              string
@@ -71,6 +71,8 @@ func New(token string, options ...Option) (*Bot, error) {
 	}
 
 	b := &Bot{
+		nextUpdateOffset: 1,
+
 		url:         "https://api.telegram.org",
 		token:       token,
 		pollTimeout: defaultPollTimeout,

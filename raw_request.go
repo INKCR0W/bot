@@ -25,6 +25,14 @@ type apiResponse struct {
 	} `json:"parameters,omitempty"`
 }
 
+const webhookActiveDescription = "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"
+
+var errWebhookActive = fmt.Errorf("%w, %s", ErrorConflict, webhookActiveDescription)
+
+type unauthorizedPollError struct{ error }
+
+func (e unauthorizedPollError) Unwrap() error { return e.error }
+
 // rawRequest materialises the multipart body up front so net/http can set
 // Request.ContentLength and Request.GetBody. Without them http2.Transport cannot
 // replay a POST after the server sends GOAWAY, and every call on a draining
@@ -33,6 +41,10 @@ type apiResponse struct {
 // without a Content-Type, as local telegram-bot-api servers reject an empty
 // multipart body.
 func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest any) error {
+	return b.rawRequestWithToken(ctx, b.Token(), method, params, dest, nil)
+}
+
+func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, params, dest any, beforeDispatch func()) error {
 	if ctx == nil {
 		return fmt.Errorf("nil context for method %s", method)
 	}
@@ -64,7 +76,7 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 		contentType = form.FormDataContentType()
 	}
 
-	u := b.url + "/bot" + b.token + "/"
+	u := b.url + "/bot" + token + "/"
 	if b.testEnvironment {
 		u += "test/"
 	}
@@ -72,7 +84,7 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 
 	if b.isDebug && strings.ToLower(method) != "getupdates" {
 		requestDebugData, _ := json.Marshal(params)
-		b.debugHandler("request url: %s, payload: %s", strings.Replace(u, b.token, "***", 1), requestDebugData)
+		b.debugHandler("request url: %s, payload: %s", strings.Replace(u, token, "***", 1), requestDebugData)
 	}
 
 	req, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, u, requestBody)
@@ -87,11 +99,14 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if beforeDispatch != nil {
+		beforeDispatch()
+	}
 	resp, errDo := b.client.Do(req)
 	if errDo != nil {
 		var netErr *url.Error
 		if errors.As(errDo, &netErr) {
-			netErr.URL = strings.Replace(netErr.URL, b.token, "***", -1)
+			netErr.URL = strings.Replace(netErr.URL, token, "***", -1)
 		}
 
 		return fmt.Errorf("error do request for method %s, %w", method, errDo)
@@ -129,10 +144,17 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 			}
 			return fmt.Errorf("%w, %s", ErrorBadRequest, r.Description)
 		case http.StatusUnauthorized:
-			return fmt.Errorf("%w, %s", ErrorUnauthorized, r.Description)
+			err := fmt.Errorf("%w, %s", ErrorUnauthorized, r.Description)
+			if method == "getUpdates" {
+				return unauthorizedPollError{err}
+			}
+			return err
 		case http.StatusNotFound:
 			return fmt.Errorf("%w, %s", ErrorNotFound, r.Description)
 		case http.StatusConflict:
+			if method == "getUpdates" && r.Description == webhookActiveDescription {
+				return errWebhookActive
+			}
 			return fmt.Errorf("%w, %s", ErrorConflict, r.Description)
 		case http.StatusTooManyRequests:
 			err := &TooManyRequestsError{
@@ -147,7 +169,7 @@ func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest an
 
 	if !bytes.Equal(r.Result, []byte("[]")) {
 		if b.isDebug {
-			b.debugHandler("response from '%s' with payload '%s'", strings.Replace(u, b.token, "***", 1), body)
+			b.debugHandler("response from '%s' with payload '%s'", strings.Replace(u, token, "***", 1), body)
 		}
 	}
 

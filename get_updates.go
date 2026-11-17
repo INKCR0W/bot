@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptrace"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +18,7 @@ const (
 )
 
 type getUpdatesParams struct {
-	Offset         int64          `json:"offset,omitempty"`
+	Offset         int64          `json:"offset"`
 	Limit          int            `json:"limit,omitempty"`
 	Timeout        int            `json:"timeout,omitempty"`
 	AllowedUpdates AllowedUpdates `json:"allowed_updates,omitempty"`
@@ -47,7 +50,7 @@ func (b *Bot) getUpdates(ctx context.Context, queue chan<- queuedUpdate) {
 
 		params := &getUpdatesParams{
 			Timeout: int((b.pollTimeout - time.Second).Seconds()),
-			Offset:  atomic.LoadInt64(&b.lastUpdateID) + 1,
+			Offset:  atomic.LoadInt64(&b.nextUpdateOffset),
 		}
 
 		if b.allowedUpdates != nil {
@@ -56,15 +59,36 @@ func (b *Bot) getUpdates(ctx context.Context, queue chan<- queuedUpdate) {
 
 		var updates []json.RawMessage
 
-		errRequest := b.rawRequest(ctx, "getUpdates", params, &updates)
+		requestCtx := ctx
+		var gotConnection *uint32
+		var beforeDispatch func()
+		if params.Offset < 0 {
+			requestCtx, gotConnection = tracePollConnections(ctx, b.client)
+			beforeDispatch = func() {
+				// If the outcome is unknown after dispatch, retrying a negative
+				// offset could discard unconfirmed updates as new ones arrive.
+				atomic.StoreInt64(&b.nextUpdateOffset, 0)
+			}
+		}
+
+		errRequest := b.rawRequestWithToken(requestCtx, b.Token(), "getUpdates", params, &updates, beforeDispatch)
 		if errRequest != nil {
+			var tooManyRequestsErr *TooManyRequestsError
+			hasRetryAfter := errors.As(errRequest, &tooManyRequestsErr) && tooManyRequestsErr != nil && tooManyRequestsErr.RetryAfter > 0
+
+			// rawRequest wraps transport errors, so a direct rate limit came
+			// from the parsed Telegram response.
+			_, unauthorized := errRequest.(unauthorizedPollError)
+			rejectedByTelegram := unauthorized || errRequest == errWebhookActive || (hasRetryAfter && errRequest == tooManyRequestsErr)
+			if params.Offset < 0 && (rejectedByTelegram || failedBeforePollConnection(gotConnection, errRequest)) {
+				atomic.StoreInt64(&b.nextUpdateOffset, params.Offset)
+			}
 			if errors.Is(errRequest, context.Canceled) {
 				return
 			}
 			b.error("error get updates, %w", errRequest)
 
-			var tooManyRequestsErr *TooManyRequestsError
-			if errors.As(errRequest, &tooManyRequestsErr) && tooManyRequestsErr.RetryAfter > 0 {
+			if hasRetryAfter {
 				timeoutAfterError = time.Duration(tooManyRequestsErr.RetryAfter) * time.Second
 			} else {
 				timeoutAfterError = incErrTimeout(timeoutAfterError)
@@ -94,7 +118,7 @@ func (b *Bot) getUpdates(ctx context.Context, queue chan<- queuedUpdate) {
 				// Telegram has dropped the updates before this batch. Resume from
 				// it rather than from the negative offset, which would drop any
 				// update of the batch that was not dispatched.
-				atomic.StoreInt64(&b.lastUpdateID, upd.ID-1)
+				atomic.StoreInt64(&b.nextUpdateOffset, upd.ID)
 			}
 
 			if errDecode != nil {
@@ -125,6 +149,40 @@ func (b *Bot) getUpdates(ctx context.Context, queue chan<- queuedUpdate) {
 			timeoutAfterError = 0
 		}
 	}
+}
+
+func tracePollConnections(ctx context.Context, client HttpClient) (context.Context, *uint32) {
+	httpClient, ok := client.(*http.Client)
+	if !ok || httpClient == nil {
+		return ctx, nil
+	}
+	roundTripper := httpClient.Transport
+	if roundTripper == nil {
+		roundTripper = http.DefaultTransport
+	}
+	transport, ok := roundTripper.(*http.Transport)
+	if !ok || transport == nil {
+		return ctx, nil
+	}
+	//nolint:staticcheck // Go 1.18 can still use legacy custom dial hooks.
+	if roundTripper != http.DefaultTransport && (transport.DialContext != nil || transport.Dial != nil ||
+		transport.DialTLSContext != nil || transport.DialTLS != nil) {
+		return ctx, nil
+	}
+
+	gotConnection := new(uint32)
+	trace := &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { atomic.StoreUint32(gotConnection, 1) },
+	}
+	return httptrace.WithClientTrace(ctx, trace), gotConnection
+}
+
+func failedBeforePollConnection(gotConnection *uint32, err error) bool {
+	if gotConnection == nil || atomic.LoadUint32(gotConnection) != 0 {
+		return false
+	}
+	var dialErr *net.OpError
+	return errors.As(err, &dialErr) && dialErr != nil && dialErr.Op == "dial"
 }
 
 var errMissingUpdateID = errors.New("missing update_id")
@@ -200,7 +258,7 @@ func (b *Bot) confirmDispatched(ctx context.Context, batch []batchUpdate) bool {
 		settled++
 	}
 	if settled > 0 {
-		atomic.StoreInt64(&b.lastUpdateID, batch[settled-1].id)
+		atomic.StoreInt64(&b.nextUpdateOffset, batch[settled-1].id+1)
 	}
 	return settled == len(batch)
 }
