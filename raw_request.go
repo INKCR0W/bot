@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -76,20 +77,25 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 		contentType = form.FormDataContentType()
 	}
 
-	u := b.url + "/bot" + token + "/"
+	path := "/"
 	if b.testEnvironment {
-		u += "test/"
+		path += "test/"
 	}
-	u += method
+	path += method
+	u := b.url + "/bot" + token + path
+	var debugURL string
+	if b.isDebug {
+		debugURL = b.url + "/bot***" + path
+	}
 
 	if b.isDebug && strings.ToLower(method) != "getupdates" {
 		requestDebugData, _ := json.Marshal(params)
-		b.debugHandler("request url: %s, payload: %s", strings.Replace(u, token, "***", 1), requestDebugData)
+		b.debugHandler("request url: %s, payload: %s", debugURL, requestDebugData)
 	}
 
 	req, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, u, requestBody)
 	if errRequest != nil {
-		return fmt.Errorf("error create request for method %s, %w", method, errRequest)
+		return fmt.Errorf("error create request for method %s, %w", method, redactRequestError(errRequest, token))
 	}
 
 	if contentType != "" {
@@ -104,12 +110,7 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 	}
 	resp, errDo := b.client.Do(req)
 	if errDo != nil {
-		var netErr *url.Error
-		if errors.As(errDo, &netErr) {
-			netErr.URL = strings.Replace(netErr.URL, token, "***", -1)
-		}
-
-		return fmt.Errorf("error do request for method %s, %w", method, errDo)
+		return fmt.Errorf("error do request for method %s, %w", method, redactRequestError(errDo, token))
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -169,7 +170,7 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 
 	if !bytes.Equal(r.Result, []byte("[]")) {
 		if b.isDebug {
-			b.debugHandler("response from '%s' with payload '%s'", strings.Replace(u, token, "***", 1), body)
+			b.debugHandler("response from '%s' with payload '%s'", debugURL, body)
 		}
 	}
 
@@ -182,3 +183,182 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 
 	return nil
 }
+
+func redactRequestError(err error, token string) error {
+	if token == "" {
+		return err
+	}
+	replacements := []string{token, "***"}
+	if id, secret, ok := strings.Cut(token, ":"); ok {
+		replacements = append(replacements, id+"%3A"+secret, "***", id+"%3a"+secret, "***")
+	}
+	redactor := requestErrorRedactor{replace: strings.NewReplacer(replacements...), keepURLProjections: true}
+	clean, _ := redactor.redact(err)
+	return clean
+}
+
+type requestErrorRedactor struct {
+	replace            *strings.Replacer
+	keepURLProjections bool
+}
+
+func (r requestErrorRedactor) redact(err error) (error, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if urlErr, ok := err.(*url.Error); ok {
+		clean, fieldsChanged := r.redactURLFields(urlErr)
+		cause, causeChanged := r.redact(clean.Err)
+		if fieldsChanged || causeChanged {
+			clean.Err = cause
+			return &clean, true
+		}
+		return err, false
+	}
+
+	original := err.Error()
+	message := original
+	clean := &redactedRequestError{original: err}
+	var causeChanged bool
+	joined, isJoined := err.(interface{ Unwrap() []error })
+	if isJoined {
+		causes := joined.Unwrap()
+		clean.causes = make([]error, len(causes))
+		for i, cause := range causes {
+			var changed bool
+			clean.causes[i], changed = r.redactNested(cause, &message)
+			causeChanged = causeChanged || changed
+		}
+	} else if cause := errors.Unwrap(err); cause != nil {
+		var safeCause error
+		safeCause, causeChanged = r.redactNested(cause, &message)
+		clean.causes = []error{safeCause}
+	}
+	var projectionChanged bool
+	clean.projectedURL, projectionChanged = r.redactURLProjection(err, &message)
+	message = r.replace.Replace(message)
+	if message == original && !causeChanged && !projectionChanged {
+		return err, false
+	}
+	clean.message = message
+	if network, ok := err.(net.Error); ok {
+		classified := &redactedNetworkError{clean, network}
+		if isJoined {
+			return &redactedJoinedNetworkError{classified}, true
+		}
+		return classified, true
+	}
+	if isJoined {
+		return &redactedJoinedError{clean}, true
+	}
+	return clean, true
+}
+
+func (r requestErrorRedactor) redactNested(cause error, message *string) (error, bool) {
+	clean, changed := r.redact(cause)
+	if changed {
+		// Replace the formatted cause to cover URL characters escaped by Error.
+		*message = strings.ReplaceAll(*message, cause.Error(), clean.Error())
+	}
+	return clean, changed
+}
+
+func (r requestErrorRedactor) redactURLFields(err *url.Error) (url.Error, bool) {
+	clean := *err
+	clean.Op = r.replace.Replace(clean.Op)
+	clean.URL = r.replace.Replace(clean.URL)
+	return clean, clean.Op != err.Op || clean.URL != err.URL
+}
+
+func (r requestErrorRedactor) redactURLProjection(err error, message *string) (*url.Error, bool) {
+	adapter, ok := err.(interface{ As(any) bool })
+	if !ok {
+		return nil, false
+	}
+	var projected *url.Error
+	if !adapter.As(&projected) || projected == nil {
+		return nil, false
+	}
+	// A projection can wrap the adapter that created it. Follow only ordinary
+	// unwrap causes inside the projection and hide nested As projections.
+	if !r.keepURLProjections {
+		return nil, true
+	}
+	r.keepURLProjections = false
+	clean, changed := r.redactURLFields(projected)
+	cause, causeChanged := r.redact(clean.Err)
+	clean.Err = cause
+	changed = changed || causeChanged
+	if changed {
+		*message = strings.ReplaceAll(*message, projected.Error(), clean.Error())
+	}
+	return &clean, changed
+}
+
+// A custom transport wrapper can store credentials in fields the SDK cannot redact.
+// Preserve the standard error contracts without returning the original wrapper.
+type redactedRequestError struct {
+	message      string
+	original     error
+	causes       []error
+	projectedURL *url.Error
+}
+
+func (e *redactedRequestError) Error() string { return e.message }
+
+func (e *redactedRequestError) GoString() string { return e.message }
+
+func (e *redactedRequestError) Is(target error) bool { return errors.Is(e.original, target) }
+
+func (e *redactedRequestError) Unwrap() error {
+	if len(e.causes) == 0 {
+		return nil
+	}
+	return e.causes[0]
+}
+
+func (e *redactedRequestError) As(target any) bool {
+	switch result := target.(type) {
+	case **url.Error:
+		if e.projectedURL != nil {
+			*result = e.projectedURL
+			return true
+		}
+		return false
+	case *net.Error:
+		for _, cause := range e.causes {
+			if errors.As(cause, result) {
+				return true
+			}
+		}
+		var network net.Error
+		if errors.As(e.original, &network) {
+			*result = &redactedNetworkError{e, network}
+			return true
+		}
+	}
+	return false
+}
+
+type redactedJoinedError struct{ *redactedRequestError }
+
+func (e *redactedJoinedError) Unwrap() []error { return e.causes }
+
+// Keep legacy Temporary classification for callers using net.Error on retries.
+type networkErrorStatus interface {
+	Timeout() bool
+	Temporary() bool
+}
+
+type redactedNetworkError struct {
+	*redactedRequestError
+	status networkErrorStatus
+}
+
+func (e *redactedNetworkError) Timeout() bool { return e.status.Timeout() }
+
+func (e *redactedNetworkError) Temporary() bool { return e.status.Temporary() }
+
+type redactedJoinedNetworkError struct{ *redactedNetworkError }
+
+func (e *redactedJoinedNetworkError) Unwrap() []error { return e.causes }

@@ -33,11 +33,40 @@ func (b *Bot) ProcessUpdate(ctx context.Context, upd *models.Update) {
 
 func (b *Bot) findHandler(upd *models.Update) HandlerFunc {
 	b.handlersMx.RLock()
-	defer b.handlersMx.RUnlock()
+	handlers := b.handlers
+	b.handlersMx.RUnlock()
 
-	for _, h := range b.handlers {
-		if h.match(upd) {
+	if len(handlers) == 0 {
+		return b.defaultHandlerFunc
+	}
+	b.tokenMx.RLock()
+	username := b.username
+	b.tokenMx.RUnlock()
+
+	commands := commandMatchCache{botUsername: username}
+	addressedHandlerIndex := -1
+	addressedMayHaveChanged := false
+	for i, h := range handlers {
+		direct, addressed := h.match(upd, &commands)
+		if direct {
 			return h.handler
+		}
+		if addressed && addressedHandlerIndex == -1 {
+			addressedHandlerIndex = i
+		}
+		if h.matchType == matchTypeFunc && addressedHandlerIndex != -1 {
+			addressedMayHaveChanged = true
+		}
+	}
+	if addressedHandlerIndex != -1 {
+		if !addressedMayHaveChanged {
+			return handlers[addressedHandlerIndex].handler
+		}
+		// Recheck the final update before dispatching a deferred command match.
+		for _, h := range handlers {
+			if h.matchesAddressedCommand(upd, &commands) {
+				return h.handler
+			}
 		}
 	}
 

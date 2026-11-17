@@ -31,8 +31,22 @@ func (b *Bot) DeleteWebhook(ctx context.Context, params *DeleteWebhookParams) (b
 
 // GetMe https://core.telegram.org/bots/api#getme
 func (b *Bot) GetMe(ctx context.Context) (*models.User, error) {
+	b.tokenMx.Lock()
+	token := b.token
+	b.getMeSequence++
+	sequence := b.getMeSequence
+	b.tokenMx.Unlock()
+
 	result := &models.User{}
-	err := b.rawRequest(ctx, "getMe", nil, result)
+	err := b.rawRequestWithToken(ctx, token, "getMe", nil, result, nil)
+	if err == nil {
+		b.tokenMx.Lock()
+		if sequence > b.usernameSequence {
+			b.username = result.Username
+			b.usernameSequence = sequence
+		}
+		b.tokenMx.Unlock()
+	}
 	return result, err
 }
 

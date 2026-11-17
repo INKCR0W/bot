@@ -34,8 +34,14 @@ type MatchFunc func(update *models.Update) bool
 type Bot struct {
 	nextUpdateOffset int64
 
-	url                string
-	token              string
+	url string
+
+	tokenMx          sync.RWMutex
+	token            string
+	username         string
+	getMeSequence    uint64
+	usernameSequence uint64
+
 	pollTimeout        time.Duration
 	skipGetMe          bool
 	webhookSecretToken string
@@ -112,20 +118,41 @@ func New(token string, options ...Option) (*Bot, error) {
 // It returns 0 if the prefix cannot be parsed as an int64.
 // ID does not validate or authenticate the token.
 func (b *Bot) ID() int64 {
-	i, err := strconv.ParseInt(strings.Split(b.token, ":")[0], 10, 64)
+	return botIDFromToken(b.Token())
+}
+
+func botIDFromToken(token string) int64 {
+	prefix, _, _ := strings.Cut(token, ":")
+	i, err := strconv.ParseInt(prefix, 10, 64)
 	if err != nil {
 		return 0
 	}
 	return i
 }
 
-// SetToken sets the bot token
+// SetToken sets the bot token. Call GetMe after switching to a different bot
+// to enable matching commands addressed to its username.
 func (b *Bot) SetToken(token string) {
+	b.tokenMx.Lock()
+	defer b.tokenMx.Unlock()
+	if token == b.token {
+		return
+	}
+	if b.username != "" {
+		id := botIDFromToken(token)
+		if id <= 0 || id != botIDFromToken(b.token) {
+			b.username = ""
+		}
+	}
 	b.token = token
+	// Ignore GetMe responses started before the token change, even if the token is restored.
+	b.usernameSequence = b.getMeSequence
 }
 
 // Token returns the bot token
 func (b *Bot) Token() string {
+	b.tokenMx.RLock()
+	defer b.tokenMx.RUnlock()
 	return b.token
 }
 
@@ -191,5 +218,5 @@ func False() *bool {
 
 // FileDownloadLink returns the file download link
 func (b *Bot) FileDownloadLink(f *models.File) string {
-	return fmt.Sprintf("%s/file/bot%s/%s", b.url, b.token, f.FilePath)
+	return fmt.Sprintf("%s/file/bot%s/%s", b.url, b.Token(), f.FilePath)
 }

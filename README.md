@@ -313,6 +313,8 @@ Match Types:
 - `MatchTypeCommand`
 - `MatchTypeCommandStartOnly`
 
+Register a command pattern without the leading `/`, for example `start`. Once `GetMe` has loaded your bot's username, the bare pattern also matches `/start@YourBot` as a fallback when no registered handler matches the original update. An explicit `start@YourBot` pattern retains its place in registration order. If you use `WithSkipGetMe()`, call `GetMe` explicitly to enable this fallback.
+
 > For `MatchTypeCommand` and `MatchTypeCommandStartOnly` usage see an [example](examples/command_handler/main.go)
 
 You can use `RegisterHandlerRegexp` to match by regular expression.
