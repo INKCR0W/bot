@@ -23,8 +23,21 @@ func TestChatPermissions_JSON_encodesFalseCanSendMessages(t *testing.T) {
 	}
 }
 
-func TestChatPermissions_JSON_encodesFalseInheritedPermissions(t *testing.T) {
-	permissions := ChatPermissions{CanPinMessages: true, CanSendMessages: true}
+func TestChatPermissions_JSON_roundTripsOptionalPermissions(t *testing.T) {
+	var permissions ChatPermissions
+	if err := json.Unmarshal([]byte(`{"can_send_messages":true,"can_pin_messages":true,"can_edit_tag":false,"can_react_to_messages":true}`), &permissions); err != nil {
+		t.Fatal(err)
+	}
+	if permissions.CanManageTopics != nil {
+		t.Fatal("expected omitted can_manage_topics to decode as nil")
+	}
+	if permissions.CanEditTag == nil || *permissions.CanEditTag {
+		t.Fatal("expected can_edit_tag to decode as explicit false")
+	}
+	if permissions.CanReactToMessages == nil || !*permissions.CanReactToMessages {
+		t.Fatal("expected can_react_to_messages to decode as explicit true")
+	}
+
 	data, err := json.Marshal(permissions)
 	if err != nil {
 		t.Fatal(err)
@@ -33,9 +46,13 @@ func TestChatPermissions_JSON_encodesFalseInheritedPermissions(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"can_manage_topics", "can_edit_tag", "can_react_to_messages"} {
-		if allowed, present := fields[name]; allowed || !present {
-			t.Errorf("expected %s to be explicitly false, got %s", name, data)
-		}
+	if _, present := fields["can_manage_topics"]; present {
+		t.Errorf("expected can_manage_topics to be omitted, got %s", data)
+	}
+	if allowed, present := fields["can_edit_tag"]; allowed || !present {
+		t.Errorf("expected can_edit_tag to be explicitly false, got %s", data)
+	}
+	if !fields["can_react_to_messages"] {
+		t.Errorf("expected can_react_to_messages to be explicitly true, got %s", data)
 	}
 }

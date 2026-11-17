@@ -70,25 +70,23 @@ type ChatAdministratorRights struct {
 }
 
 // ChatPermissions https://core.telegram.org/bots/api#chatpermissions
-// CanManageTopics, CanEditTag, and CanReactToMessages are sent even when false
-// because Telegram would otherwise inherit each from another permission.
 type ChatPermissions struct {
-	CanSendMessages       bool `json:"can_send_messages"`
-	CanSendAudios         bool `json:"can_send_audios"`
-	CanSendDocuments      bool `json:"can_send_documents"`
-	CanSendPhotos         bool `json:"can_send_photos"`
-	CanSendVideos         bool `json:"can_send_videos"`
-	CanSendVideoNotes     bool `json:"can_send_video_notes"`
-	CanSendVoiceNotes     bool `json:"can_send_voice_notes"`
-	CanSendPolls          bool `json:"can_send_polls,omitempty"`
-	CanSendOtherMessages  bool `json:"can_send_other_messages,omitempty"`
-	CanAddWebPagePreviews bool `json:"can_add_web_page_previews,omitempty"`
-	CanChangeInfo         bool `json:"can_change_info,omitempty"`
-	CanInviteUsers        bool `json:"can_invite_users,omitempty"`
-	CanPinMessages        bool `json:"can_pin_messages,omitempty"`
-	CanManageTopics       bool `json:"can_manage_topics"`
-	CanEditTag            bool `json:"can_edit_tag"`
-	CanReactToMessages    bool `json:"can_react_to_messages"`
+	CanSendMessages       bool  `json:"can_send_messages"`
+	CanSendAudios         bool  `json:"can_send_audios"`
+	CanSendDocuments      bool  `json:"can_send_documents"`
+	CanSendPhotos         bool  `json:"can_send_photos"`
+	CanSendVideos         bool  `json:"can_send_videos"`
+	CanSendVideoNotes     bool  `json:"can_send_video_notes"`
+	CanSendVoiceNotes     bool  `json:"can_send_voice_notes"`
+	CanSendPolls          bool  `json:"can_send_polls,omitempty"`
+	CanSendOtherMessages  bool  `json:"can_send_other_messages,omitempty"`
+	CanAddWebPagePreviews bool  `json:"can_add_web_page_previews,omitempty"`
+	CanChangeInfo         bool  `json:"can_change_info,omitempty"`
+	CanInviteUsers        bool  `json:"can_invite_users,omitempty"`
+	CanPinMessages        bool  `json:"can_pin_messages,omitempty"`
+	CanManageTopics       *bool `json:"can_manage_topics,omitempty"`     // Nil lets Telegram inherit CanPinMessages.
+	CanEditTag            *bool `json:"can_edit_tag,omitempty"`          // Nil lets Telegram inherit CanPinMessages.
+	CanReactToMessages    *bool `json:"can_react_to_messages,omitempty"` // Nil lets Telegram inherit CanSendMessages.
 }
 
 // ChatLocation https://core.telegram.org/bots/api#chatlocation
