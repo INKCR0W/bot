@@ -295,6 +295,8 @@ func (form *requestForm) build(params any) (int, error) {
 			err = addFormFieldPollOptions(form, fieldName, vv)
 		case []models.InlineQueryResult:
 			err = addFormFieldInlineQueryResultSlice(form, fieldName, vv)
+		case models.InputSticker:
+			err = addFormFieldInputSticker(form, fieldName, vv)
 		case []models.InputSticker:
 			err = addFormFieldInputStickerSlice(form, fieldName, vv)
 		case models.InputRichMessage:
@@ -580,26 +582,27 @@ func addFormFieldInlineQueryResultSlice(form *requestForm, fieldName string, val
 	return form.addFieldPart(fieldName, strings.NewReader("["+strings.Join(lines, ",")+"]"))
 }
 
-func addFormFieldInputStickerSlice(form *requestForm, fieldName string, value []models.InputSticker) error {
-	var lines []string
-	for _, sticker := range value {
-		if strings.HasPrefix(sticker.Sticker, "attach://") {
-			filename := strings.TrimPrefix(sticker.Sticker, "attach://")
-			if !form.hasFilePart(filename) && readerIsNil(sticker.StickerAttachment) {
-				return fmt.Errorf("nil StickerAttachment for attach://%s", filename)
-			}
-			if err := form.addFilePart(filename, filename, sticker.StickerAttachment); err != nil {
-				return err
-			}
-		}
-		line, errEncode := json.Marshal(sticker)
-		if errEncode != nil {
-			return errEncode
-		}
-		lines = append(lines, string(line))
-	}
+func addInputStickerAttachment(form *requestForm, sticker models.InputSticker) error {
+	return form.addMediaAttachment(sticker.Sticker, sticker.StickerAttachment, "StickerAttachment")
+}
 
-	return form.addFieldPart(fieldName, strings.NewReader("["+strings.Join(lines, ",")+"]"))
+func addFormFieldInputSticker(form *requestForm, fieldName string, sticker models.InputSticker) error {
+	if err := addInputStickerAttachment(form, sticker); err != nil {
+		return err
+	}
+	return addFormFieldDefault(form, fieldName, sticker)
+}
+
+func addFormFieldInputStickerSlice(form *requestForm, fieldName string, stickers []models.InputSticker) error {
+	if len(stickers) == 0 {
+		return addFormFieldString(form, fieldName, "[]")
+	}
+	for _, sticker := range stickers {
+		if err := addInputStickerAttachment(form, sticker); err != nil {
+			return err
+		}
+	}
+	return addFormFieldDefault(form, fieldName, stickers)
 }
 
 func addFormFieldDefault(form *requestForm, fieldName string, value any) error {

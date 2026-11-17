@@ -187,11 +187,10 @@ func Test_buildRequestForm_inputMediaNilAttachment(t *testing.T) {
 
 func Test_addFormFieldInputStickerSlice_nilAttachment(t *testing.T) {
 	writer := multipart.NewWriter(bytes.NewBuffer(nil))
-	form := newRequestForm(writer)
-	err := addFormFieldInputStickerSlice(form, "stickers", []models.InputSticker{{
+	_, err := buildRequestForm(writer, &CreateNewStickerSetParams{Stickers: []models.InputSticker{{
 		Sticker: "attach://sticker.png",
 		Format:  "static",
-	}})
+	}}})
 	if err == nil {
 		t.Fatal("expected error for attach:// with nil StickerAttachment")
 	}
