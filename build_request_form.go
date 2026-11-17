@@ -109,12 +109,8 @@ func (f *requestForm) writeFilePart(file formFile) error {
 	if errCreatePart != nil {
 		return errCreatePart
 	}
-	data := file.data
-	f.fileParts[file.partName] = data
-	if f.ctx != nil && f.ctx.Done() != nil {
-		data = uploadContextReader{ctx: f.ctx, reader: data}
-	}
-	_, errCopy := io.Copy(w, data)
+	f.fileParts[file.partName] = file.data
+	_, errCopy := io.Copy(w, uploadContextReader{ctx: f.ctx, reader: file.data})
 	return errCopy
 }
 
@@ -151,15 +147,18 @@ func (f *requestForm) addMediaAttachment(media string, attachment io.Reader, lab
 	return f.addReferencedFile(name, attachment, "nil "+label+" for "+media)
 }
 
-// uploadContextReader checks cancellation between reads without taking ownership of the reader.
+// uploadContextReader checks cancellation between reads and keeps io.Copy from
+// delegating to an upload's WriterTo, which could buffer the entire file.
 type uploadContextReader struct {
 	ctx    context.Context
 	reader io.Reader
 }
 
 func (r uploadContextReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
+	if r.ctx != nil {
+		if err := r.ctx.Err(); err != nil {
+			return 0, err
+		}
 	}
 	return r.reader.Read(p)
 }

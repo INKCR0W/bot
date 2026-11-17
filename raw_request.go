@@ -34,13 +34,9 @@ type unauthorizedPollError struct{ error }
 
 func (e unauthorizedPollError) Unwrap() error { return e.error }
 
-// rawRequest materialises the multipart body up front so net/http can set
-// Request.ContentLength and Request.GetBody. Without them http2.Transport cannot
-// replay a POST after the server sends GOAWAY, and every call on a draining
-// connection fails. The price is that an upload is held in memory for the
-// duration of the request. A method with no fields is sent without a body and
-// without a Content-Type, as local telegram-bot-api servers reject an empty
-// multipart body.
+// rawRequest prepares a replayable multipart body for HTTP retries and redirects.
+// Local telegram-bot-api servers reject empty multipart forms, so methods without
+// any fields send no body or Content-Type.
 func (b *Bot) rawRequest(ctx context.Context, method string, params any, dest any) error {
 	return b.rawRequestWithToken(ctx, b.Token(), method, params, dest, nil)
 }
@@ -53,8 +49,13 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 		return err
 	}
 
-	var bodyBuf bytes.Buffer
-	form := multipart.NewWriter(&bodyBuf)
+	var requestBody multipartBody
+	defer func() {
+		if err := requestBody.Close(); err != nil {
+			b.errorsHandler(fmt.Errorf("clean up request body for method %s: %w", method, err))
+		}
+	}()
+	form := multipart.NewWriter(&requestBody)
 
 	var fieldsCount int
 	if params != nil && !reflect.ValueOf(params).IsNil() {
@@ -67,14 +68,10 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 		}
 	}
 
-	var requestBody io.Reader = http.NoBody
-	var contentType string
 	if fieldsCount > 0 {
 		if errFormClose := form.Close(); errFormClose != nil {
 			return fmt.Errorf("error form close for method %s, %w", method, errFormClose)
 		}
-		requestBody = bytes.NewReader(bodyBuf.Bytes())
-		contentType = form.FormDataContentType()
 	}
 
 	path := "/"
@@ -93,23 +90,35 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 		b.debugHandler("request url: %s, payload: %s", debugURL, requestDebugData)
 	}
 
-	req, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, u, requestBody)
+	req, errRequest := http.NewRequestWithContext(ctx, http.MethodPost, u, http.NoBody)
 	if errRequest != nil {
 		return fmt.Errorf("error create request for method %s, %w", method, redactRequestError(errRequest, token))
 	}
 
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	if fieldsCount > 0 {
+		req.Header.Set("Content-Type", form.FormDataContentType())
+		req.ContentLength = requestBody.size()
+		req.GetBody = requestBody.replayReader
 	}
 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if fieldsCount > 0 {
+		req.Body = requestBody.initialReader()
+	}
+	client := b.client
+	if requestBody.file != nil {
+		client = b.clientForSpooledRequest()
+	}
 	if beforeDispatch != nil {
 		beforeDispatch()
 	}
-	resp, errDo := b.client.Do(req)
+	resp, errDo := client.Do(req)
 	if errDo != nil {
+		if requestBody.file != nil && isRequestCancellation(ctx, errDo) {
+			requestBody.discardUnread()
+		}
 		return fmt.Errorf("error do request for method %s, %w", method, redactRequestError(errDo, token))
 	}
 	defer func() {
@@ -182,6 +191,36 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 	}
 
 	return nil
+}
+
+func isRequestCancellation(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// http.Client.Timeout on older Go versions exposes Timeout but no context sentinel.
+	var timeoutErr net.Error
+	return errors.As(err, &timeoutErr) && timeoutErr.Timeout()
+}
+
+func (b *Bot) clientForSpooledRequest() HttpClient {
+	client, ok := b.client.(*http.Client)
+	if !ok || client.CheckRedirect == nil {
+		return b.client
+	}
+	redirectClient := *client
+	checkRedirect := redirectClient.CheckRedirect
+	redirectClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		body, isSpooled := req.Body.(*multipartFileReader)
+		err := checkRedirect(req, via)
+		// net/http does not close the proposed request body when the callback rejects it.
+		if err != nil && isSpooled {
+			if closeErr := body.Close(); closeErr != nil {
+				b.error("close rejected upload replay: %w", closeErr)
+			}
+		}
+		return err
+	}
+	return &redirectClient
 }
 
 func redactRequestError(err error, token string) error {

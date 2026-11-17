@@ -20,6 +20,10 @@ const (
 	defaultWorkers          = 1
 )
 
+// HttpClient follows the request body ownership rules of http.Client.Do.
+// Implementations must close the request body and any copies returned by
+// Request.GetBody, even on errors and when discarding a copy through a delegated
+// redirect callback. Closing may happen asynchronously.
 type HttpClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
