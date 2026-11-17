@@ -200,11 +200,14 @@ func isRequestCancellation(ctx context.Context, err error) bool {
 
 func (b *Bot) clientForSpooledRequest() HttpClient {
 	client, ok := b.client.(*http.Client)
-	if !ok || client.CheckRedirect == nil {
+	if !ok || client == nil {
 		return b.client
 	}
 	redirectClient := *client
 	checkRedirect := redirectClient.CheckRedirect
+	if checkRedirect == nil {
+		checkRedirect = defaultCheckRedirect
+	}
 	redirectClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		body, isSpooled := req.Body.(*multipartFileReader)
 		err := checkRedirect(req, via)
@@ -217,6 +220,15 @@ func (b *Bot) clientForSpooledRequest() HttpClient {
 		return err
 	}
 	return &redirectClient
+}
+
+// defaultCheckRedirect mirrors the unexported defaultCheckRedirect in
+// net/http/client.go, which http.Client uses when CheckRedirect is nil.
+func defaultCheckRedirect(_ *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
 }
 
 func redactRequestError(err error, token string) error {

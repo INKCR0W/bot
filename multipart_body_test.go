@@ -552,3 +552,52 @@ func unexpectedUploadClient(t *testing.T) uploadClientFunc {
 		return nil, nil
 	}
 }
+
+func TestSpooledRequestClientClosesReplayRejectedByDefaultPolicy(t *testing.T) {
+	useUploadTempDir(t)
+	b, err := New("123:test", WithSkipGetMe(), WithHTTPClient(time.Second, &http.Client{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, ok := b.clientForSpooledRequest().(*http.Client)
+	if !ok || client.CheckRedirect == nil {
+		t.Fatal("spooled request client does not check redirects")
+	}
+
+	var body multipartBody
+	defer func() {
+		if err := body.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := body.Write(make([]byte, multipartMemoryLimitBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	if body.file == nil {
+		t.Fatal("body was not spooled")
+	}
+
+	allowed, err := body.replayReader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckRedirect(&http.Request{Body: allowed}, make([]*http.Request, 9)); err != nil {
+		t.Errorf("ninth redirect rejected: %v", err)
+	}
+	if err := allowed.Close(); err != nil {
+		t.Error(err)
+	}
+
+	rejected, err := body.replayReader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.CheckRedirect(&http.Request{Body: rejected}, make([]*http.Request, 10))
+	if err == nil || err.Error() != "stopped after 10 redirects" {
+		t.Errorf("tenth redirect error = %v, want stopped after 10 redirects", err)
+	}
+	var probe [1]byte
+	if _, err := rejected.Read(probe[:]); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("rejected replay was not closed, read error = %v", err)
+	}
+}
