@@ -503,7 +503,7 @@ Escape only unescaped special symbols for Telegram MarkdownV2 syntax
 
 Returns fast random a-zA-Z string with n length
 
-### `True() bool`, `False() bool`
+### `True() *bool`, `False() *bool`
 
 Allows you to define `*bool` values for params, which require `*bool`, like `SendPollParams`
 
@@ -511,7 +511,10 @@ Allows you to define `*bool` values for params, which require `*bool`, like `Sen
 p := &bot.SendPollParams{
     ChatID: chatID,
     Question: "Question",
-    Options: []string{"Option 1", "Option 2"},
+    Options: []models.InputPollOption{
+        {Text: "Option 1"},
+        {Text: "Option 2"},
+    },
     IsAnonymous: bot.False(),
 }
 
