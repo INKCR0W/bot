@@ -38,6 +38,8 @@ type InputRichMessageContent struct {
 	RichMessage InputRichMessage `json:"rich_message"`
 }
 
+func (InputRichMessageContent) inputMessageContentTag() {}
+
 // RichBlockCaption https://core.telegram.org/bots/api#richblockcaption
 //
 // Caption of a rich formatted block.
