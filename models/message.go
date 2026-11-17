@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -22,26 +23,70 @@ type MaybeInaccessibleMessage struct {
 }
 
 func (mim *MaybeInaccessibleMessage) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		*mim = MaybeInaccessibleMessage{}
+		return nil
+	}
+
 	v := struct {
-		Date int `json:"date"`
+		Date        int             `json:"date"`
+		ArchiveType json.RawMessage `json:"Type"`
 	}{}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
 	}
 
-	if v.Date == 0 {
-		mim.Type = MaybeInaccessibleMessageTypeInaccessibleMessage
-		mim.InaccessibleMessage = &InaccessibleMessage{}
-		return json.Unmarshal(data, mim.InaccessibleMessage)
+	if v.ArchiveType != nil {
+		// Older by-value archives used the wrapper's Go field names.
+		var archive map[string]json.RawMessage
+		if err := json.Unmarshal(data, &archive); err != nil {
+			return err
+		}
+		if len(archive) == 3 && archive["Type"] != nil && archive["Message"] != nil && archive["InaccessibleMessage"] != nil {
+			var kind *MaybeInaccessibleMessageType
+			if err := json.Unmarshal(archive["Type"], &kind); err != nil {
+				return err
+			}
+			if kind == nil {
+				return fmt.Errorf("missing MaybeInaccessibleMessage archive type")
+			}
+			payload := archive["Message"]
+			if *kind == MaybeInaccessibleMessageTypeInaccessibleMessage {
+				payload = archive["InaccessibleMessage"]
+			}
+			return mim.unmarshalVariant(*kind, payload)
+		}
 	}
 
-	mim.Type = MaybeInaccessibleMessageTypeMessage
-	mim.Message = &Message{}
-	return json.Unmarshal(data, mim.Message)
+	if v.Date == 0 {
+		return mim.unmarshalVariant(MaybeInaccessibleMessageTypeInaccessibleMessage, data)
+	}
+	return mim.unmarshalVariant(MaybeInaccessibleMessageTypeMessage, data)
 }
 
-func (mim *MaybeInaccessibleMessage) MarshalJSON() ([]byte, error) {
+func (mim *MaybeInaccessibleMessage) unmarshalVariant(kind MaybeInaccessibleMessageType, data []byte) error {
+	decoded := MaybeInaccessibleMessage{Type: kind}
+	var err error
+	switch kind {
+	case MaybeInaccessibleMessageTypeMessage:
+		err = json.Unmarshal(data, &decoded.Message)
+	case MaybeInaccessibleMessageTypeInaccessibleMessage:
+		err = json.Unmarshal(data, &decoded.InaccessibleMessage)
+	default:
+		return fmt.Errorf("unsupported MaybeInaccessibleMessage type")
+	}
+	if err != nil {
+		return err
+	}
+	if decoded.Message == nil && decoded.InaccessibleMessage == nil {
+		decoded = MaybeInaccessibleMessage{}
+	}
+	*mim = decoded
+	return nil
+}
+
+func (mim MaybeInaccessibleMessage) MarshalJSON() ([]byte, error) {
 	switch mim.Type {
 	case MaybeInaccessibleMessageTypeMessage:
 		return json.Marshal(mim.Message)

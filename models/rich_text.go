@@ -155,19 +155,30 @@ func (rt *RichText) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	var decoded RichText
+	var err error
 	switch trimmed[0] {
 	case '"':
-		rt.Type = ""
-		return json.Unmarshal(trimmed, &rt.PlainText)
+		var text string
+		err = json.Unmarshal(trimmed, &text)
+		decoded.PlainText = text
 	case '[':
-		rt.Type = ""
-		return json.Unmarshal(trimmed, &rt.Array)
+		var parts []RichText
+		err = json.Unmarshal(trimmed, &parts)
+		decoded.Array = parts
 	case '{':
-		// fall through to the tagged-object dispatch below
+		err = decoded.unmarshalTagged(trimmed)
 	default:
 		return fmt.Errorf("unexpected RichText JSON: %s", trimmed)
 	}
+	if err != nil {
+		return err
+	}
+	*rt = decoded
+	return nil
+}
 
+func (rt *RichText) unmarshalTagged(trimmed []byte) error {
 	v := struct {
 		Type RichTextType `json:"type"`
 	}{}

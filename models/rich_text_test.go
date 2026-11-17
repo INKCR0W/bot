@@ -89,6 +89,48 @@ func TestRichText_ArrayOfMixed(t *testing.T) {
 	}
 }
 
+func TestRichText_ReusedDestination(t *testing.T) {
+	var rt RichText
+	for _, src := range []string{
+		`[["old"]]`,
+		`"new"`,
+		`[]`,
+		`{"type":"bold","text":"bold"}`,
+		`{"type":"italic","text":"italic"}`,
+		`""`,
+	} {
+		if err := json.Unmarshal([]byte(src), &rt); err != nil {
+			t.Fatalf("unmarshal %s: %v", src, err)
+		}
+		out, err := json.Marshal(rt)
+		if err != nil || string(out) != src {
+			t.Fatalf("re-encode %s = %s, %v", src, out, err)
+		}
+		if src[0] != '"' && rt.PlainText != "" {
+			t.Fatalf("unmarshal %s left the old plain text %q", src, rt.PlainText)
+		}
+		if rt.Type != RichTextTypeBold && rt.RichTextBold != nil {
+			t.Fatalf("unmarshal %s left the old bold variant", src)
+		}
+		if rt.Type != RichTextTypeItalic && rt.RichTextItalic != nil {
+			t.Fatalf("unmarshal %s left the old italic variant", src)
+		}
+	}
+}
+
+func TestRichText_FailedDecodePreservesDestination(t *testing.T) {
+	rt := RichText{PlainText: "original"}
+	for _, src := range []string{`["partial",false]`, `{"type":"bold","text":42}`} {
+		if err := json.Unmarshal([]byte(src), &rt); err == nil {
+			t.Fatalf("unmarshal %s succeeded unexpectedly", src)
+		}
+		out, err := json.Marshal(rt)
+		if err != nil || string(out) != `"original"` {
+			t.Fatalf("unmarshal %s replaced the original with %s, %v", src, out, err)
+		}
+	}
+}
+
 func TestRichText_VariantsWithExtraFields(t *testing.T) {
 	for _, src := range []string{
 		`{"type":"url","text":"link","url":"https://example.com"}`,
@@ -109,6 +151,13 @@ func TestRichText_Null(t *testing.T) {
 	}
 	if rt.Type != "" || rt.PlainText != "" || rt.Array != nil {
 		t.Fatal("null should leave RichText zero")
+	}
+	rt = RichText{PlainText: "original"}
+	if err := json.Unmarshal([]byte("null"), &rt); err != nil {
+		t.Fatal(err)
+	}
+	if rt.PlainText != "original" {
+		t.Fatalf("null unexpectedly changed the original text to %q", rt.PlainText)
 	}
 }
 
