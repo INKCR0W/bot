@@ -47,6 +47,20 @@ func (c *ChatMember) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	var legacyType ChatMemberType
+	if v.Status == "" {
+		// Match the old Go field exactly so unrelated lowercase fields are ignored.
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		if tag, ok := fields["Type"]; ok {
+			if err := json.Unmarshal(tag, &legacyType); err != nil {
+				return err
+			}
+			v.Status = legacyType
+		}
+	}
 	if v.Status == "" {
 		return missingDiscriminator("ChatMember")
 	}
@@ -56,47 +70,72 @@ func (c *ChatMember) UnmarshalJSON(data []byte) error {
 	switch v.Status {
 	case ChatMemberTypeOwner:
 		c.Owner = &ChatMemberOwner{}
-		return json.Unmarshal(data, c.Owner)
+		return unmarshalChatMemberVariant(data, c.Owner, "Owner", legacyType)
 	case ChatMemberTypeAdministrator:
 		c.Administrator = &ChatMemberAdministrator{}
-		return json.Unmarshal(data, c.Administrator)
+		return unmarshalChatMemberVariant(data, c.Administrator, "Administrator", legacyType)
 	case ChatMemberTypeMember:
 		c.Member = &ChatMemberMember{}
-		return json.Unmarshal(data, c.Member)
+		return unmarshalChatMemberVariant(data, c.Member, "Member", legacyType)
 	case ChatMemberTypeRestricted:
 		c.Restricted = &ChatMemberRestricted{}
-		return json.Unmarshal(data, c.Restricted)
+		return unmarshalChatMemberVariant(data, c.Restricted, "Restricted", legacyType)
 	case ChatMemberTypeLeft:
 		c.Left = &ChatMemberLeft{}
-		return json.Unmarshal(data, c.Left)
+		return unmarshalChatMemberVariant(data, c.Left, "Left", legacyType)
 	case ChatMemberTypeBanned:
 		c.Banned = &ChatMemberBanned{}
-		return json.Unmarshal(data, c.Banned)
+		return unmarshalChatMemberVariant(data, c.Banned, "Banned", legacyType)
 	}
 
+	if legacyType != "" {
+		return validateUnknownArchivedChatMember(data)
+	}
 	return nil
 }
 
-func (c *ChatMember) MarshalJSON() ([]byte, error) {
+func unmarshalChatMemberVariant(data []byte, dest any, archivedField string, legacyType ChatMemberType) error {
+	if legacyType != "" {
+		archived, err := archivedUnionVariantField(data, archivedField, "status", string(legacyType))
+		if err != nil {
+			return err
+		}
+		if archived == nil {
+			return missingDiscriminator("ChatMember")
+		}
+		data = archived
+	}
+	return json.Unmarshal(data, dest)
+}
+
+func validateUnknownArchivedChatMember(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	// The old Go wrapper wrote every variant field, even when all were nil.
+	for _, name := range []string{"Owner", "Administrator", "Member", "Restricted", "Left", "Banned"} {
+		if _, ok := fields[name]; !ok {
+			return missingDiscriminator("ChatMember")
+		}
+	}
+	return nil
+}
+
+func (c ChatMember) MarshalJSON() ([]byte, error) {
 	switch c.Type {
 	case ChatMemberTypeOwner:
-		c.Owner.Status = ChatMemberTypeOwner
-		return json.Marshal(c.Owner)
+		return marshalVariant("ChatMember", c.Type, c.Owner, func(v *ChatMemberOwner) { v.Status = c.Type })
 	case ChatMemberTypeAdministrator:
-		c.Administrator.Status = ChatMemberTypeAdministrator
-		return json.Marshal(c.Administrator)
+		return marshalVariant("ChatMember", c.Type, c.Administrator, func(v *ChatMemberAdministrator) { v.Status = c.Type })
 	case ChatMemberTypeMember:
-		c.Member.Status = ChatMemberTypeMember
-		return json.Marshal(c.Member)
+		return marshalVariant("ChatMember", c.Type, c.Member, func(v *ChatMemberMember) { v.Status = c.Type })
 	case ChatMemberTypeRestricted:
-		c.Restricted.Status = ChatMemberTypeRestricted
-		return json.Marshal(c.Restricted)
+		return marshalVariant("ChatMember", c.Type, c.Restricted, func(v *ChatMemberRestricted) { v.Status = c.Type })
 	case ChatMemberTypeLeft:
-		c.Left.Status = ChatMemberTypeLeft
-		return json.Marshal(c.Left)
+		return marshalVariant("ChatMember", c.Type, c.Left, func(v *ChatMemberLeft) { v.Status = c.Type })
 	case ChatMemberTypeBanned:
-		c.Banned.Status = ChatMemberTypeBanned
-		return json.Marshal(c.Banned)
+		return marshalVariant("ChatMember", c.Type, c.Banned, func(v *ChatMemberBanned) { v.Status = c.Type })
 	}
 
 	return marshalUnknownVariant("ChatMember", "status", c.Type)

@@ -29,13 +29,19 @@ type BackgroundType struct {
 
 func (cb *BackgroundType) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type BackgroundTypeType `json:"type"`
+		Type       BackgroundTypeType `json:"type"`
+		LegacyType BackgroundTypeType `json:"Type"`
 	}{}
 
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 
+	if v.Type == "" {
+		v.Type = v.LegacyType
+	} else {
+		v.LegacyType = ""
+	}
 	if v.Type == "" {
 		return missingDiscriminator("BackgroundType")
 	}
@@ -44,32 +50,28 @@ func (cb *BackgroundType) UnmarshalJSON(data []byte) error {
 
 	switch v.Type {
 	case ChatBackgroundTypeFill:
-		return json.Unmarshal(data, &cb.Fill)
+		return unmarshalVariantWithArchive(data, &cb.Fill, "Fill", "type", string(v.LegacyType))
 	case ChatBackgroundTypeWallpaper:
-		return json.Unmarshal(data, &cb.Wallpaper)
+		return unmarshalVariantWithArchive(data, &cb.Wallpaper, "Wallpaper", "type", string(v.LegacyType))
 	case ChatBackgroundTypePattern:
-		return json.Unmarshal(data, &cb.Pattern)
+		return unmarshalVariantWithArchive(data, &cb.Pattern, "Pattern", "type", string(v.LegacyType))
 	case ChatBackgroundTypeChatTheme:
-		return json.Unmarshal(data, &cb.Theme)
+		return unmarshalVariantWithArchive(data, &cb.Theme, "Theme", "type", string(v.LegacyType))
 	}
 
 	return nil
 }
 
-func (cb *BackgroundType) MarshalJSON() ([]byte, error) {
+func (cb BackgroundType) MarshalJSON() ([]byte, error) {
 	switch cb.Type {
 	case ChatBackgroundTypeFill:
-		cb.Fill.Type = ChatBackgroundTypeFill
-		return json.Marshal(cb.Fill)
+		return marshalVariant("BackgroundType", cb.Type, cb.Fill, func(v *BackgroundTypeFill) { v.Type = cb.Type })
 	case ChatBackgroundTypeWallpaper:
-		cb.Wallpaper.Type = ChatBackgroundTypeWallpaper
-		return json.Marshal(cb.Wallpaper)
+		return marshalVariant("BackgroundType", cb.Type, cb.Wallpaper, func(v *BackgroundTypeWallpaper) { v.Type = cb.Type })
 	case ChatBackgroundTypePattern:
-		cb.Pattern.Type = ChatBackgroundTypePattern
-		return json.Marshal(cb.Pattern)
+		return marshalVariant("BackgroundType", cb.Type, cb.Pattern, func(v *BackgroundTypePattern) { v.Type = cb.Type })
 	case ChatBackgroundTypeChatTheme:
-		cb.Theme.Type = ChatBackgroundTypeChatTheme
-		return json.Marshal(cb.Theme)
+		return marshalVariant("BackgroundType", cb.Type, cb.Theme, func(v *BackgroundTypeChatTheme) { v.Type = cb.Type })
 	}
 
 	return marshalUnknownVariant("BackgroundType", "type", cb.Type)
@@ -124,12 +126,18 @@ type BackgroundFill struct {
 
 func (bf *BackgroundFill) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type BackgroundFillType `json:"type"`
+		Type       BackgroundFillType `json:"type"`
+		LegacyType BackgroundFillType `json:"Type"`
 	}{}
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 
+	if v.Type == "" {
+		v.Type = v.LegacyType
+	} else {
+		v.LegacyType = ""
+	}
 	if v.Type == "" {
 		return missingDiscriminator("BackgroundFill")
 	}
@@ -139,29 +147,26 @@ func (bf *BackgroundFill) UnmarshalJSON(data []byte) error {
 	switch v.Type {
 	case BackgroundFillTypeSolid:
 		bf.Solid = &BackgroundFillSolid{}
-		return json.Unmarshal(data, bf.Solid)
+		return unmarshalVariantWithArchive(data, bf.Solid, "Solid", "type", string(v.LegacyType))
 	case BackgroundFillTypeGradient:
 		bf.Gradient = &BackgroundFillGradient{}
-		return json.Unmarshal(data, bf.Gradient)
+		return unmarshalVariantWithArchive(data, bf.Gradient, "Gradient", "type", string(v.LegacyType))
 	case BackgroundFillTypeFreeformGradient:
 		bf.FreeformGradient = &BackgroundFillFreeformGradient{}
-		return json.Unmarshal(data, bf.FreeformGradient)
+		return unmarshalVariantWithArchive(data, bf.FreeformGradient, "FreeformGradient", "type", string(v.LegacyType))
 	}
 
 	return nil
 }
 
-func (bf *BackgroundFill) MarshalJSON() ([]byte, error) {
+func (bf BackgroundFill) MarshalJSON() ([]byte, error) {
 	switch bf.Type {
 	case BackgroundFillTypeSolid:
-		bf.Solid.Type = BackgroundFillTypeSolid
-		return json.Marshal(bf.Solid)
+		return marshalVariant("BackgroundFill", bf.Type, bf.Solid, func(v *BackgroundFillSolid) { v.Type = bf.Type })
 	case BackgroundFillTypeGradient:
-		bf.Gradient.Type = BackgroundFillTypeGradient
-		return json.Marshal(bf.Gradient)
+		return marshalVariant("BackgroundFill", bf.Type, bf.Gradient, func(v *BackgroundFillGradient) { v.Type = bf.Type })
 	case BackgroundFillTypeFreeformGradient:
-		bf.FreeformGradient.Type = BackgroundFillTypeFreeformGradient
-		return json.Marshal(bf.FreeformGradient)
+		return marshalVariant("BackgroundFill", bf.Type, bf.FreeformGradient, func(v *BackgroundFillFreeformGradient) { v.Type = bf.Type })
 	}
 
 	return marshalUnknownVariant("BackgroundFill", "type", bf.Type)

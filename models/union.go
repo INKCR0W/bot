@@ -46,16 +46,39 @@ func missingDiscriminator(union string) error {
 }
 
 func archivedVariantField(data []byte, field, tag string) ([]byte, error) {
+	return archivedUnionVariantField(data, field, "type", tag)
+}
+
+func archivedUnionVariantField(data []byte, field, discriminator, tag string) ([]byte, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, err
 	}
-	return archivedVariant(fields[field], tag)
+	return archivedVariantWithDiscriminator(fields[field], discriminator, tag)
 }
 
-// archivedVariant recognizes the nested Go struct emitted by older versions
-// without confusing fields such as a transaction's Telegram User with a variant.
+// unmarshalVariantWithArchive recovers the selected payload only when the outer
+// discriminator came from the Go field name used by older archives.
+func unmarshalVariantWithArchive(data []byte, dest any, archivedField, discriminator, legacyTag string) error {
+	if legacyTag != "" {
+		archived, err := archivedUnionVariantField(data, archivedField, discriminator, legacyTag)
+		if err != nil {
+			return err
+		}
+		if archived != nil {
+			data = archived
+		}
+	}
+	return json.Unmarshal(data, dest)
+}
+
 func archivedVariant(nested []byte, tag string) ([]byte, error) {
+	return archivedVariantWithDiscriminator(nested, "type", tag)
+}
+
+// archivedVariantWithDiscriminator recognizes the nested Go struct emitted by older versions
+// without confusing fields such as a transaction's Telegram User with a variant.
+func archivedVariantWithDiscriminator(nested []byte, discriminator, tag string) ([]byte, error) {
 	if len(nested) == 0 || nested[0] != '{' {
 		return nil, nil
 	}
@@ -63,17 +86,19 @@ func archivedVariant(nested []byte, tag string) ([]byte, error) {
 	if err := json.Unmarshal(nested, &fields); err != nil {
 		return nil, err
 	}
-	typ := fields["type"]
-	if typ == nil {
+	typ := fields[discriminator]
+	if typ == nil && discriminator == "type" {
 		typ = fields["Type"]
 	}
 	switch string(typ) {
 	case strconv.Quote(tag):
 		return nested, nil
 	case `""`:
-		// The old encoder wrote a blank nested type for caller-constructed variants.
-		delete(fields, "Type")
-		fields["type"] = json.RawMessage(strconv.Quote(tag))
+		// The old encoder wrote a blank nested discriminator for caller-constructed variants.
+		if discriminator == "type" {
+			delete(fields, "Type")
+		}
+		fields[discriminator] = json.RawMessage(strconv.Quote(tag))
 		return json.Marshal(fields)
 	}
 	return nil, nil

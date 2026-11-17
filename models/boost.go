@@ -47,13 +47,19 @@ type ChatBoostSource struct {
 
 func (cbs *ChatBoostSource) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Source ChatBoostSourceType `json:"source"`
+		Source       ChatBoostSourceType `json:"source"`
+		LegacySource ChatBoostSourceType `json:"Source"`
 	}{}
 	err := json.Unmarshal(data, &v)
 	if err != nil {
 		return err
 	}
 
+	if v.Source == "" {
+		v.Source = v.LegacySource
+	} else {
+		v.LegacySource = ""
+	}
 	if v.Source == "" {
 		return missingDiscriminator("ChatBoostSource")
 	}
@@ -63,29 +69,26 @@ func (cbs *ChatBoostSource) UnmarshalJSON(data []byte) error {
 	switch v.Source {
 	case ChatBoostSourceTypePremium:
 		cbs.ChatBoostSourcePremium = &ChatBoostSourcePremium{}
-		return json.Unmarshal(data, cbs.ChatBoostSourcePremium)
+		return unmarshalVariantWithArchive(data, cbs.ChatBoostSourcePremium, "ChatBoostSourcePremium", "source", string(v.LegacySource))
 	case ChatBoostSourceTypeGiftCode:
 		cbs.ChatBoostSourceGiftCode = &ChatBoostSourceGiftCode{}
-		return json.Unmarshal(data, cbs.ChatBoostSourceGiftCode)
+		return unmarshalVariantWithArchive(data, cbs.ChatBoostSourceGiftCode, "ChatBoostSourceGiftCode", "source", string(v.LegacySource))
 	case ChatBoostSourceTypeGiveaway:
 		cbs.ChatBoostSourceGiveaway = &ChatBoostSourceGiveaway{}
-		return json.Unmarshal(data, cbs.ChatBoostSourceGiveaway)
+		return unmarshalVariantWithArchive(data, cbs.ChatBoostSourceGiveaway, "ChatBoostSourceGiveaway", "source", string(v.LegacySource))
 	}
 
 	return nil
 }
 
-func (cbs *ChatBoostSource) MarshalJSON() ([]byte, error) {
+func (cbs ChatBoostSource) MarshalJSON() ([]byte, error) {
 	switch cbs.Source {
 	case ChatBoostSourceTypePremium:
-		cbs.ChatBoostSourcePremium.Source = ChatBoostSourceTypePremium
-		return json.Marshal(cbs.ChatBoostSourcePremium)
+		return marshalVariant("ChatBoostSource", cbs.Source, cbs.ChatBoostSourcePremium, func(v *ChatBoostSourcePremium) { v.Source = cbs.Source })
 	case ChatBoostSourceTypeGiftCode:
-		cbs.ChatBoostSourceGiftCode.Source = ChatBoostSourceTypeGiftCode
-		return json.Marshal(cbs.ChatBoostSourceGiftCode)
+		return marshalVariant("ChatBoostSource", cbs.Source, cbs.ChatBoostSourceGiftCode, func(v *ChatBoostSourceGiftCode) { v.Source = cbs.Source })
 	case ChatBoostSourceTypeGiveaway:
-		cbs.ChatBoostSourceGiveaway.Source = ChatBoostSourceTypeGiveaway
-		return json.Marshal(cbs.ChatBoostSourceGiveaway)
+		return marshalVariant("ChatBoostSource", cbs.Source, cbs.ChatBoostSourceGiveaway, func(v *ChatBoostSourceGiveaway) { v.Source = cbs.Source })
 	}
 
 	return marshalUnknownVariant("ChatBoostSource", "source", cbs.Source)

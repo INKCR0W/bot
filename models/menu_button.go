@@ -27,12 +27,18 @@ type MenuButton struct {
 
 func (c *MenuButton) UnmarshalJSON(data []byte) error {
 	v := struct {
-		Type MenuButtonType `json:"type"`
+		Type       MenuButtonType `json:"type"`
+		LegacyType MenuButtonType `json:"Type"`
 	}{}
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 
+	if v.Type == "" {
+		v.Type = v.LegacyType
+	} else {
+		v.LegacyType = ""
+	}
 	if v.Type == "" {
 		return missingDiscriminator("MenuButton")
 	}
@@ -42,29 +48,26 @@ func (c *MenuButton) UnmarshalJSON(data []byte) error {
 	switch v.Type {
 	case MenuButtonTypeCommands:
 		c.Commands = &MenuButtonCommands{}
-		return json.Unmarshal(data, c.Commands)
+		return unmarshalVariantWithArchive(data, c.Commands, "Commands", "type", string(v.LegacyType))
 	case MenuButtonTypeWebApp:
 		c.WebApp = &MenuButtonWebApp{}
-		return json.Unmarshal(data, c.WebApp)
+		return unmarshalVariantWithArchive(data, c.WebApp, "WebApp", "type", string(v.LegacyType))
 	case MenuButtonTypeDefault:
 		c.Default = &MenuButtonDefault{}
-		return json.Unmarshal(data, c.Default)
+		return unmarshalVariantWithArchive(data, c.Default, "Default", "type", string(v.LegacyType))
 	}
 
 	return nil
 }
 
-func (c *MenuButton) MarshalJSON() ([]byte, error) {
+func (c MenuButton) MarshalJSON() ([]byte, error) {
 	switch c.Type {
 	case MenuButtonTypeCommands:
-		c.Commands.Type = MenuButtonTypeCommands
-		return json.Marshal(c.Commands)
+		return marshalVariant("MenuButton", c.Type, c.Commands, func(v *MenuButtonCommands) { v.Type = c.Type })
 	case MenuButtonTypeWebApp:
-		c.WebApp.Type = MenuButtonTypeWebApp
-		return json.Marshal(c.WebApp)
+		return marshalVariant("MenuButton", c.Type, c.WebApp, func(v *MenuButtonWebApp) { v.Type = c.Type })
 	case MenuButtonTypeDefault:
-		c.Default.Type = MenuButtonTypeDefault
-		return json.Marshal(c.Default)
+		return marshalVariant("MenuButton", c.Type, c.Default, func(v *MenuButtonDefault) { v.Type = c.Type })
 	}
 
 	return marshalUnknownVariant("MenuButton", "type", c.Type)
