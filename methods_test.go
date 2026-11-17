@@ -397,15 +397,40 @@ func TestBot_Methods(t *testing.T) {
 	})
 
 	t.Run("SendPoll", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `{"text":"bar"}`, reqFields: map[string]string{
-			"chat_id": "123",
-		}}
-		b := &Bot{client: c}
-		resp, err := b.SendPoll(context.Background(), &SendPollParams{
-			ChatID: 123,
-		})
-		assertNoErr(t, err)
-		assertEqualString(t, "bar", resp.Text)
+		for _, tt := range []struct {
+			name           string
+			allowsRevoting *bool
+			want           string
+		}{
+			{name: "omitted"},
+			{name: "explicit false", allowsRevoting: False(), want: "false"},
+			{name: "explicit true", allowsRevoting: True(), want: "true"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				c := &httpClient{
+					t:         t,
+					resp:      `{"text":"bar"}`,
+					reqPath:   "/bot/sendPoll",
+					reqFields: map[string]string{"chat_id": "123"},
+				}
+				if tt.want == "" {
+					c.absent = []string{"allows_revoting"}
+				} else {
+					c.reqFields["allows_revoting"] = tt.want
+				}
+				b := &Bot{client: c}
+				resp, err := b.SendPoll(context.Background(), &SendPollParams{
+					ChatID:         123,
+					Question:       "Pick one",
+					Options:        []models.InputPollOption{{Text: "First"}, {Text: "Second"}},
+					AllowsRevoting: tt.allowsRevoting,
+				})
+				if err != nil {
+					t.Fatalf("send poll: %v", err)
+				}
+				assertEqualString(t, "bar", resp.Text)
+			})
+		}
 	})
 
 	t.Run("SendDice", func(t *testing.T) {

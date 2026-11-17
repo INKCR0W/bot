@@ -449,7 +449,7 @@ type SendPollParams struct {
 	ExplanationMedia       models.InputMedia        `json:"explanation_media,omitempty"`
 	MembersOnly            bool                     `json:"members_only,omitempty"`
 	CountryCodes           []string                 `json:"country_codes,omitempty"`
-	AllowsRevoting         bool                     `json:"allows_revoting,omitempty"`
+	AllowsRevoting         *bool                    `json:"allows_revoting,omitempty"` // Nil uses Telegram's default for the poll type
 	ShuffleOptions         bool                     `json:"shuffle_options,omitempty"`
 	AllowAddingOptions     bool                     `json:"allow_adding_options,omitempty"`
 	HideResultsUntilCloses bool                     `json:"hide_results_until_closes,omitempty"`
