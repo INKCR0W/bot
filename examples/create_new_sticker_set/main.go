@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"embed"
+	_ "embed"
 	"fmt"
 	"os"
 	"os/signal"
@@ -42,15 +42,16 @@ func main() {
 	b.Start(ctx)
 }
 
-//go:embed images
-var images embed.FS
+//go:embed images/telegram.png
+var stickerPNG []byte
+
 var botUsername string
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.Message == nil {
+	message := update.Message
+	if message == nil || message.From == nil || message.SenderChat != nil {
 		return
 	}
-	fileContent, _ := images.ReadFile("images/telegram.png")
 
 	inputSticker1 := models.InputSticker{
 		Sticker:   "https://github.com/go-telegram/bot/blob/main/examples/create_new_sticker_set/images/telegram.png?raw=true",
@@ -62,12 +63,12 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Sticker:           "attach://telegram.png",
 		Format:            "static",
 		EmojiList:         []string{"2️⃣"},
-		StickerAttachment: bytes.NewReader(fileContent),
+		StickerAttachment: bytes.NewReader(stickerPNG),
 	}
 
 	stickerSetName := fmt.Sprintf("Example%d_by_%s", time.Now().Unix(), botUsername)
 	params := &bot.CreateNewStickerSetParams{
-		UserID: update.Message.Chat.ID,
+		UserID: message.From.ID,
 		Name:   stickerSetName,
 		Title:  "Example sticker set",
 		Stickers: []models.InputSticker{
@@ -92,7 +93,7 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	_, err = b.SendSticker(
 		ctx,
 		&bot.SendStickerParams{
-			ChatID: update.Message.Chat.ID,
+			ChatID: message.Chat.ID,
 			Sticker: &models.InputFileString{
 				Data: stickerSet.Stickers[0].FileID,
 			},

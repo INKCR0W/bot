@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/signal"
 
@@ -34,11 +35,14 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil {
 		return
 	}
+	const photoURL = "https://raw.githubusercontent.com/go-telegram/bot/c36c9208cfb84a1c2a5418a07ae2066fa22ebd18/examples/send_photo_upload/facebook.png"
 	params := &bot.SendPhotoParams{
 		ChatID:  update.Message.Chat.ID,
-		Photo:   &models.InputFileString{Data: "AgACAgIAAxkDAAIBOWJimnCJHQJiJ4P3aasQCPNyo6mlAALDuzEbcD0YSxzjB-vmkZ6BAQADAgADbQADJAQ"},
-		Caption: "Preloaded Facebook logo",
+		Photo:   &models.InputFileString{Data: photoURL},
+		Caption: "Facebook logo",
 	}
 
-	b.SendPhoto(ctx, params)
+	if _, err := b.SendPhoto(ctx, params); err != nil {
+		log.Printf("send photo: %v", err)
+	}
 }

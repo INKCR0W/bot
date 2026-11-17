@@ -83,9 +83,11 @@ func TestMultiselectKeepsSelectionsPerKeyboard(t *testing.T) {
 			if len(markup.InlineKeyboard) != 2 || len(markup.InlineKeyboard[0]) != 3 {
 				t.Fatalf("unexpected new keyboard: %v", markup)
 			}
-			for _, button := range markup.InlineKeyboard[0] {
-				if !strings.HasPrefix(button.Text, "❌") {
-					t.Errorf("new keyboard shows a selected option: %q", button.Text)
+			for i, button := range markup.InlineKeyboard[0] {
+				wantLabel := fmt.Sprintf("❌ Option %d", i+1)
+				wantCallback := fmt.Sprintf("btn_opt%d", i+1)
+				if button.Text != wantLabel || button.CallbackData != wantCallback {
+					t.Errorf("new keyboard button %d = %q (%q), want %q (%q)", i, button.Text, button.CallbackData, wantLabel, wantCallback)
 				}
 			}
 		case call.method == "sendMessage":

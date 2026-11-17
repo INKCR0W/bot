@@ -461,7 +461,15 @@ For `CreateNewStickerSet` method you can send sticker by file path or file conte
 If you want to use `attach://` format, you should to define `StickerAttachment` field with file content reader.
 
 ```go
-fileContent, _ := os.ReadFile("/path/to/telegram.png")
+if update.Message == nil || update.Message.From == nil || update.Message.SenderChat != nil {
+	return
+}
+
+fileContent, err := os.ReadFile("/path/to/telegram.png")
+if err != nil {
+	log.Printf("read sticker: %v", err)
+	return
+}
 
 inputSticker1 := models.InputSticker{
 	Sticker:   "https://github.com/go-telegram/bot/blob/main/examples/create_new_sticker_set/images/telegram.png?raw=true",
@@ -477,7 +485,7 @@ inputSticker2 := models.InputSticker{
 }
 
 params := &bot.CreateNewStickerSetParams{
-	UserID: update.Message.Chat.ID,
+	UserID: update.Message.From.ID,
 	Name:   fmt.Sprintf("Example%d_by_%s", time.Now().Unix(), botUsername),
 	Title:  "Example sticker set",
 	Stickers: []models.InputSticker{
@@ -486,7 +494,9 @@ params := &bot.CreateNewStickerSetParams{
 	},
 }
 
-b.CreateNewStickerSet(ctx, params)
+if _, err := b.CreateNewStickerSet(ctx, params); err != nil {
+	log.Printf("create sticker set: %v", err)
+}
 ```
 
 [Demo in examples](examples/create_new_sticker_set/main.go)

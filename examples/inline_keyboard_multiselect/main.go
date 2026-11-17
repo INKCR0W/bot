@@ -131,8 +131,8 @@ func buildKeyboard(selected selection) models.ReplyMarkup {
 		InlineKeyboard: [][]models.InlineKeyboardButton{
 			{
 				{Text: buttonText("Option 1", selected[0]), CallbackData: "btn_opt1"},
-				{Text: buttonText("Option 1", selected[1]), CallbackData: "btn_opt2"},
-				{Text: buttonText("Option 1", selected[2]), CallbackData: "btn_opt3"},
+				{Text: buttonText("Option 2", selected[1]), CallbackData: "btn_opt2"},
+				{Text: buttonText("Option 3", selected[2]), CallbackData: "btn_opt3"},
 			}, {
 				{Text: "Select", CallbackData: "btn_select"},
 			},

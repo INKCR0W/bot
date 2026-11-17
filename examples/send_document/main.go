@@ -3,7 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
+	_ "embed"
+	"log"
 	"os"
 	"os/signal"
 
@@ -12,6 +13,9 @@ import (
 )
 
 // Send any text message to the bot after the bot has been started
+
+//go:embed demo.txt
+var document []byte
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -35,17 +39,13 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil {
 		return
 	}
-	fileData, errReadFile := os.ReadFile("./examples/send_document/demo.txt")
-	if errReadFile != nil {
-		fmt.Printf("error read file, %v\n", errReadFile)
-		return
-	}
-
 	params := &bot.SendDocumentParams{
 		ChatID:   update.Message.Chat.ID,
-		Document: &models.InputFileUpload{Filename: "demo.txt", Data: bytes.NewReader(fileData)},
+		Document: &models.InputFileUpload{Filename: "demo.txt", Data: bytes.NewReader(document)},
 		Caption:  "Document",
 	}
 
-	b.SendDocument(ctx, params)
+	if _, err := b.SendDocument(ctx, params); err != nil {
+		log.Printf("send document: %v", err)
+	}
 }
