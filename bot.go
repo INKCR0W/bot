@@ -222,5 +222,12 @@ func False() *bool {
 
 // FileDownloadLink returns the file download link
 func (b *Bot) FileDownloadLink(f *models.File) string {
-	return fmt.Sprintf("%s/file/bot%s/%s", b.url, b.Token(), f.FilePath)
+	return b.url + "/file/bot" + b.Token() + b.botAPIPath(f.FilePath)
+}
+
+func (b *Bot) botAPIPath(path string) string {
+	if b.testEnvironment {
+		return "/test/" + path
+	}
+	return "/" + path
 }

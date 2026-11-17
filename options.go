@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"strings"
 	"time"
 )
 
@@ -81,10 +82,10 @@ func WithHTTPClient(pollTimeout time.Duration, client HttpClient) Option {
 	}
 }
 
-// WithServerURL allows to set custom server url
+// WithServerURL sets the base URL of a custom Bot API server.
 func WithServerURL(serverURL string) Option {
 	return func(b *Bot) {
-		b.url = serverURL
+		b.url = strings.TrimRight(serverURL, "/")
 	}
 }
 

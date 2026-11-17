@@ -21,8 +21,8 @@ type apiResponse struct {
 	Description string          `json:"description,omitempty"`
 	ErrorCode   int             `json:"error_code,omitempty"`
 	Parameters  struct {
-		RetryAfter      int `json:"retry_after,omitempty"`
-		MigrateToChatID int `json:"migrate_to_chat_id,omitempty"`
+		RetryAfter      int   `json:"retry_after,omitempty"`
+		MigrateToChatID int64 `json:"migrate_to_chat_id,omitempty"`
 	} `json:"parameters,omitempty"`
 }
 
@@ -74,11 +74,7 @@ func (b *Bot) rawRequestWithToken(ctx context.Context, token, method string, par
 		}
 	}
 
-	path := "/"
-	if b.testEnvironment {
-		path += "test/"
-	}
-	path += method
+	path := b.botAPIPath(method)
 	u := b.url + "/bot" + token + path
 	var debugURL string
 	if b.isDebug {

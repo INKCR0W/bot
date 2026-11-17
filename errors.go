@@ -31,7 +31,7 @@ func IsTooManyRequestsError(err error) bool {
 
 type MigrateError struct {
 	Message         string
-	MigrateToChatID int
+	MigrateToChatID int64
 }
 
 func (e *MigrateError) Error() string {
