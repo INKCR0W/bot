@@ -21,16 +21,16 @@ type PassportElementErrorDataField struct {
 
 func (PassportElementErrorDataField) passportElementErrorTag() {}
 
-func (m *PassportElementErrorDataField) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorDataField
-	}{
-		Type:                          "data",
-		PassportElementErrorDataField: m,
-	}
+func (m PassportElementErrorDataField) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorDataField
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "data", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorDataField) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorFrontSide https://core.telegram.org/bots/api#passportelementerrorfrontside
@@ -42,16 +42,16 @@ type PassportElementErrorFrontSide struct {
 
 func (PassportElementErrorFrontSide) passportElementErrorTag() {}
 
-func (m *PassportElementErrorFrontSide) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorFrontSide
-	}{
-		Type:                          "front_side",
-		PassportElementErrorFrontSide: m,
-	}
+func (m PassportElementErrorFrontSide) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorFrontSide
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "front_side", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorFrontSide) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorReverseSide https://core.telegram.org/bots/api#passportelementerrorreverseside
@@ -63,16 +63,16 @@ type PassportElementErrorReverseSide struct {
 
 func (PassportElementErrorReverseSide) passportElementErrorTag() {}
 
-func (m *PassportElementErrorReverseSide) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorReverseSide
-	}{
-		Type:                            "reverse_side",
-		PassportElementErrorReverseSide: m,
-	}
+func (m PassportElementErrorReverseSide) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorReverseSide
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "reverse_side", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorReverseSide) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorSelfie https://core.telegram.org/bots/api#passportelementerrorselfie
@@ -84,16 +84,16 @@ type PassportElementErrorSelfie struct {
 
 func (PassportElementErrorSelfie) passportElementErrorTag() {}
 
-func (m *PassportElementErrorSelfie) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorSelfie
-	}{
-		Type:                       "selfie",
-		PassportElementErrorSelfie: m,
-	}
+func (m PassportElementErrorSelfie) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorSelfie
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "selfie", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorSelfie) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorFile https://core.telegram.org/bots/api#passportelementerrorfile
@@ -105,16 +105,16 @@ type PassportElementErrorFile struct {
 
 func (PassportElementErrorFile) passportElementErrorTag() {}
 
-func (m *PassportElementErrorFile) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorFile
-	}{
-		Type:                     "file",
-		PassportElementErrorFile: m,
-	}
+func (m PassportElementErrorFile) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorFile
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "file", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorFile) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorFiles https://core.telegram.org/bots/api#passportelementerrorfiles
@@ -126,16 +126,16 @@ type PassportElementErrorFiles struct {
 
 func (PassportElementErrorFiles) passportElementErrorTag() {}
 
-func (m *PassportElementErrorFiles) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorFiles
-	}{
-		Type:                      "files",
-		PassportElementErrorFiles: m,
-	}
+func (m PassportElementErrorFiles) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorFiles
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "files", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorFiles) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorTranslationFile https://core.telegram.org/bots/api#passportelementerrortranslationfile
@@ -147,16 +147,16 @@ type PassportElementErrorTranslationFile struct {
 
 func (PassportElementErrorTranslationFile) passportElementErrorTag() {}
 
-func (m *PassportElementErrorTranslationFile) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorTranslationFile
-	}{
-		Type:                                "translation_file",
-		PassportElementErrorTranslationFile: m,
-	}
+func (m PassportElementErrorTranslationFile) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorTranslationFile
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "translation_file", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorTranslationFile) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorTranslationFiles https://core.telegram.org/bots/api#passportelementerrortranslationfiles
@@ -168,16 +168,16 @@ type PassportElementErrorTranslationFiles struct {
 
 func (PassportElementErrorTranslationFiles) passportElementErrorTag() {}
 
-func (m *PassportElementErrorTranslationFiles) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorTranslationFiles
-	}{
-		Type:                                 "translation_files",
-		PassportElementErrorTranslationFiles: m,
-	}
+func (m PassportElementErrorTranslationFiles) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorTranslationFiles
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "translation_files", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorTranslationFiles) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
 
 // PassportElementErrorUnspecified https://core.telegram.org/bots/api#passportelementerrorunspecified
@@ -189,14 +189,14 @@ type PassportElementErrorUnspecified struct {
 
 func (PassportElementErrorUnspecified) passportElementErrorTag() {}
 
-func (m *PassportElementErrorUnspecified) MarshalCustom() ([]byte, error) {
-	ret := struct {
-		Type string `json:"type"`
-		*PassportElementErrorUnspecified
-	}{
-		Type:                            "unspecified",
-		PassportElementErrorUnspecified: m,
-	}
+func (m PassportElementErrorUnspecified) MarshalJSON() ([]byte, error) {
+	type payload PassportElementErrorUnspecified
+	return json.Marshal(struct {
+		Source string `json:"source"`
+		payload
+	}{Source: "unspecified", payload: payload(m)})
+}
 
-	return json.Marshal(&ret)
+func (m *PassportElementErrorUnspecified) MarshalCustom() ([]byte, error) {
+	return json.Marshal(m)
 }
