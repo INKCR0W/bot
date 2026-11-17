@@ -107,6 +107,22 @@ type StoryAreaType struct {
 	StoryAreaTypeUniqueGift        *StoryAreaTypeUniqueGift
 }
 
+func (s StoryAreaType) MarshalJSON() ([]byte, error) {
+	switch s.Type {
+	case StoryAreaTypeTypeLocation:
+		return marshalVariant("StoryAreaType", s.Type, s.StoryAreaTypeLocation, func(v *StoryAreaTypeLocation) { v.Type = s.Type })
+	case StoryAreaTypeTypeSuggestedReaction:
+		return marshalVariant("StoryAreaType", s.Type, s.StoryAreaTypeSuggestedReaction, func(v *StoryAreaTypeSuggestedReaction) { v.Type = s.Type })
+	case StoryAreaTypeTypeLink:
+		return marshalVariant("StoryAreaType", s.Type, s.StoryAreaTypeLink, func(v *StoryAreaTypeLink) { v.Type = s.Type })
+	case StoryAreaTypeTypeWeather:
+		return marshalVariant("StoryAreaType", s.Type, s.StoryAreaTypeWeather, func(v *StoryAreaTypeWeather) { v.Type = s.Type })
+	case StoryAreaTypeTypeUniqueGift:
+		return marshalVariant("StoryAreaType", s.Type, s.StoryAreaTypeUniqueGift, func(v *StoryAreaTypeUniqueGift) { v.Type = s.Type })
+	}
+	return marshalUnknownVariant("StoryAreaType", "type", s.Type)
+}
+
 func (s *StoryAreaType) UnmarshalJSON(data []byte) error {
 	v := struct {
 		Type StoryAreaTypeType `json:"type"`
