@@ -23,8 +23,8 @@ type ForumTopicClosed struct {
 
 // ForumTopicEdited https://core.telegram.org/bots/api#forumtopicedited
 type ForumTopicEdited struct {
-	Name              string `json:"name,omitempty"`
-	IconCustomEmojiID string `json:"icon_custom_emoji_id,omitempty"`
+	Name              string  `json:"name,omitempty"`
+	IconCustomEmojiID *string `json:"icon_custom_emoji_id,omitempty"` // Nil means unchanged. An empty string means removed.
 }
 
 // ForumTopicReopened https://core.telegram.org/bots/api#forumtopicreopened

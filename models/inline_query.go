@@ -18,7 +18,7 @@ type InlineQuery struct {
 type AnswerInlineQuery struct {
 	InlineQueryID     string              `json:"inline_query_id"`
 	Results           []InlineQueryResult `json:"results"`
-	CacheTime         int                 `json:"cache_time,omitempty"`
+	CacheTime         *int                `json:"cache_time,omitempty"` // Nil uses the Telegram default.
 	IsPersonal        bool                `json:"is_personal,omitempty"`
 	NextOffset        string              `json:"next_offset,omitempty"`
 	SwitchPmText      string              `json:"switch_pm_text,omitempty"`

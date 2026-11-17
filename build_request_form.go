@@ -302,6 +302,11 @@ func (form *requestForm) build(params any) (int, error) {
 			err = addFormFieldInputRichMessage(form, fieldName, &vv)
 		case *models.InputRichMessage:
 			err = addFormFieldInputRichMessage(form, fieldName, vv)
+		case models.InputMenuButton:
+			if omitempty && isNilValue(vv) {
+				continue
+			}
+			err = addFormFieldDefault(form, fieldName, vv)
 		default:
 			err = addFormFieldDefault(form, fieldName, v.Field(i).Interface())
 		}

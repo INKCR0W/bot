@@ -46,7 +46,7 @@ type ForwardMessageParams struct {
 	MessageThreadID         int                             `json:"message_thread_id,omitempty"`
 	DirectMessagesTopicID   int                             `json:"direct_messages_topic_id,omitempty"`
 	FromChatID              any                             `json:"from_chat_id"`
-	VideoStartTimestamp     int                             `json:"video_start_timestamp,omitempty"`
+	VideoStartTimestamp     *int                            `json:"video_start_timestamp,omitempty"` // Nil keeps the original start time.
 	DisableNotification     bool                            `json:"disable_notification,omitempty"`
 	ProtectContent          bool                            `json:"protect_content,omitempty"`
 	SuggestedPostParameters *models.SuggestedPostParameters `json:"suggested_post_parameters,omitempty"`
@@ -72,8 +72,8 @@ type CopyMessageParams struct {
 	DirectMessagesTopicID   int                             `json:"direct_messages_topic_id,omitempty"`
 	FromChatID              any                             `json:"from_chat_id"`
 	MessageID               int                             `json:"message_id"`
-	VideoStartTimestamp     int                             `json:"video_start_timestamp,omitempty"`
-	Caption                 string                          `json:"caption,omitempty"`
+	VideoStartTimestamp     *int                            `json:"video_start_timestamp,omitempty"` // Nil keeps the original start time.
+	Caption                 *string                         `json:"caption,omitempty"`               // Nil keeps the original caption.
 	ParseMode               models.ParseMode                `json:"parse_mode,omitempty"`
 	CaptionEntities         []models.MessageEntity          `json:"caption_entities,omitempty"`
 	ShowCaptionAboveMedia   bool                            `json:"show_caption_above_media,omitempty"`
@@ -720,10 +720,10 @@ type CreateForumTopicParams struct {
 }
 
 type EditForumTopicParams struct {
-	ChatID            any    `json:"chat_id"`
-	MessageThreadID   int    `json:"message_thread_id"`
-	Name              string `json:"name,omitempty"`
-	IconCustomEmojiID string `json:"icon_custom_emoji_id,omitempty"`
+	ChatID            any     `json:"chat_id"`
+	MessageThreadID   int     `json:"message_thread_id"`
+	Name              string  `json:"name,omitempty"`
+	IconCustomEmojiID *string `json:"icon_custom_emoji_id,omitempty"` // Nil leaves the icon unchanged. An empty string removes it.
 }
 
 type CloseForumTopicParams struct {
@@ -846,11 +846,11 @@ type GetMyShortDescriptionParams struct {
 
 type SetChatMenuButtonParams struct {
 	ChatID     any                    `json:"chat_id,omitempty"`
-	MenuButton models.InputMenuButton `json:"menu_button"`
+	MenuButton models.InputMenuButton `json:"menu_button,omitempty"`
 }
 
 type GetChatMenuButtonParams struct {
-	ChatID any `json:"chat_id"`
+	ChatID any `json:"chat_id,omitempty"`
 }
 
 type SetMyDefaultAdministratorRightsParams struct {
@@ -1083,7 +1083,7 @@ type SetStickerEmojiListParams struct {
 
 type SetStickerKeywordsParams struct {
 	Sticker  string   `json:"sticker"`
-	Keywords []string `json:"keywords"`
+	Keywords []string `json:"keywords,omitempty"` // Nil or an empty list clears the keywords.
 }
 
 type SetStickerMaskPositionParams struct {
@@ -1115,7 +1115,7 @@ type DeleteStickerSetParams struct {
 type AnswerInlineQueryParams struct {
 	InlineQueryID string                           `json:"inline_query_id"`
 	Results       []models.InlineQueryResult       `json:"results"`
-	CacheTime     int                              `json:"cache_time,omitempty"`
+	CacheTime     *int                             `json:"cache_time,omitempty"` // Nil uses the Telegram default.
 	IsPersonal    bool                             `json:"is_personal,omitempty"`
 	NextOffset    string                           `json:"next_offset,omitempty"`
 	Button        *models.InlineQueryResultsButton `json:"button,omitempty"`
