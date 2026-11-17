@@ -753,21 +753,26 @@ func TestBot_Methods(t *testing.T) {
 	})
 
 	t.Run("PinChatMessage", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `true`, reqFields: map[string]string{
-			"chat_id": "123",
-		}}
+		c := &httpClient{
+			t: t, resp: `true`, reqPath: "/bot/pinChatMessage",
+			reqFields: map[string]string{"chat_id": "123", "message_id": "7"},
+			absent:    []string{"business_connection_id"},
+		}
 		b := &Bot{client: c}
 		resp, err := b.PinChatMessage(context.Background(), &PinChatMessageParams{
-			ChatID: 123,
+			ChatID:    123,
+			MessageID: 7,
 		})
 		assertNoErr(t, err)
 		assertTrue(t, resp)
 	})
 
 	t.Run("UnpinChatMessage", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `true`, reqFields: map[string]string{
-			"chat_id": "123",
-		}}
+		c := &httpClient{
+			t: t, resp: `true`, reqPath: "/bot/unpinChatMessage",
+			reqFields: map[string]string{"chat_id": "123"},
+			absent:    []string{"business_connection_id", "message_id"},
+		}
 		b := &Bot{client: c}
 		resp, err := b.UnpinChatMessage(context.Background(), &UnpinChatMessageParams{
 			ChatID: 123,
@@ -1377,15 +1382,32 @@ func TestBot_Methods(t *testing.T) {
 	})
 
 	t.Run("SetStickerMaskPosition", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `true`, reqFields: map[string]string{
-			"sticker": "123",
-		}}
-		b := &Bot{client: c}
-		resp, err := b.SetStickerMaskPosition(context.Background(), &SetStickerMaskPositionParams{
-			Sticker: "123",
+		t.Run("set", func(t *testing.T) {
+			c := &httpClient{t: t, resp: `true`, reqPath: "/bot/setStickerMaskPosition", reqFields: map[string]string{
+				"sticker":       "sticker-file",
+				"mask_position": `{"point":"eyes","x_shift":0,"y_shift":-0.25,"scale":1}`,
+			}}
+			b := &Bot{client: c}
+			resp, err := b.SetStickerMaskPosition(context.Background(), &SetStickerMaskPositionParams{
+				Sticker:      "sticker-file",
+				MaskPosition: models.MaskPosition{Point: "eyes", YShift: -0.25, Scale: 1},
+			})
+			assertNoErr(t, err)
+			assertTrue(t, resp)
 		})
-		assertNoErr(t, err)
-		assertTrue(t, resp)
+		t.Run("remove", func(t *testing.T) {
+			c := &httpClient{
+				t: t, resp: `true`, reqPath: "/bot/setStickerMaskPosition",
+				reqFields: map[string]string{"sticker": "sticker-file"},
+				absent:    []string{"mask_position"},
+			}
+			b := &Bot{client: c}
+			resp, err := b.SetStickerMaskPosition(context.Background(), &SetStickerMaskPositionParams{
+				Sticker: "sticker-file",
+			})
+			assertNoErr(t, err)
+			assertTrue(t, resp)
+		})
 	})
 
 	t.Run("SetStickerSetTitle", func(t *testing.T) {
@@ -1534,29 +1556,188 @@ func TestBot_Methods(t *testing.T) {
 	})
 
 	t.Run("SetGameScore", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `{"text":"foo"}`, reqFields: map[string]string{
-			"chat_id": "123",
-		}}
+		c := &httpClient{
+			t: t, resp: `{"message_id":7,"text":"foo"}`, reqPath: "/bot/setGameScore",
+			reqFields: map[string]string{"user_id": "42", "score": "12", "chat_id": "123", "message_id": "7"},
+			absent:    []string{"inline_message_id"},
+		}
 		b := &Bot{client: c}
 		resp, err := b.SetGameScore(context.Background(), &SetGameScoreParams{
-			ChatID: 123,
+			UserID:    42,
+			Score:     12,
+			ChatID:    123,
+			MessageID: 7,
 		})
-		assertNoErr(t, err)
-		assertEqualString(t, "foo", resp.Text)
+		if err != nil || resp == nil || resp.ID != 7 || resp.Text != "foo" {
+			t.Fatalf("SetGameScore = %+v, %v, want chat message 7", resp, err)
+		}
 	})
 
 	t.Run("GetGameHighScores", func(t *testing.T) {
-		c := &httpClient{t: t, resp: `[{"score":42}]`, reqFields: map[string]string{
-			"chat_id": "123",
-		}}
+		c := &httpClient{
+			t: t, resp: `[{"score":42}]`, reqPath: "/bot/getGameHighScores",
+			reqFields: map[string]string{"user_id": "42", "chat_id": "123", "message_id": "7"},
+			absent:    []string{"inline_message_id"},
+		}
 		b := &Bot{client: c}
 		resp, err := b.GetGameHighScores(context.Background(), &GetGameHighScoresParams{
-			ChatID: 123,
+			UserID:    42,
+			ChatID:    123,
+			MessageID: 7,
 		})
-		assertNoErr(t, err)
-		assertEqualInt(t, 42, resp[0].Score)
+		if err != nil || len(resp) != 1 || resp[0] == nil || resp[0].Score != 42 {
+			t.Fatalf("GetGameHighScores = %+v, %v, want one score of 42", resp, err)
+		}
 	})
 
+}
+
+func TestBot_InlineGameScores(t *testing.T) {
+	const inlineMessageID = "AgAAAH2Z-U1_La4"
+
+	t.Run("set", func(t *testing.T) {
+		c := &httpClient{
+			t: t, resp: `true`, reqPath: "/bot/setGameScore",
+			reqFields: map[string]string{"user_id": "42", "score": "0", "inline_message_id": inlineMessageID},
+			absent:    []string{"chat_id", "message_id"},
+		}
+		b := &Bot{client: c}
+		message, err := b.SetGameScore(context.Background(), &SetGameScoreParams{
+			UserID:          42,
+			InlineMessageID: inlineMessageID,
+		})
+		if err != nil || message != nil {
+			t.Fatalf("SetGameScore = %+v, %v, want nil, nil", message, err)
+		}
+	})
+
+	t.Run("get", func(t *testing.T) {
+		c := &httpClient{
+			t: t, resp: `[{"position":1,"score":42,"user":{"id":42,"first_name":"Test"}}]`,
+			reqPath:   "/bot/getGameHighScores",
+			reqFields: map[string]string{"user_id": "42", "inline_message_id": inlineMessageID},
+			absent:    []string{"chat_id", "message_id"},
+		}
+		b := &Bot{client: c}
+		scores, err := b.GetGameHighScores(context.Background(), &GetGameHighScoresParams{
+			UserID:          42,
+			InlineMessageID: inlineMessageID,
+		})
+		if err != nil || len(scores) != 1 || scores[0] == nil {
+			t.Fatalf("GetGameHighScores = %+v, %v, want one score", scores, err)
+		}
+		if score := scores[0]; score.Score != 42 || score.Position != 1 || score.User.ID != 42 {
+			t.Fatalf("unexpected game high score %+v", score)
+		}
+	})
+}
+
+func TestBot_BusinessPinMethods(t *testing.T) {
+	const connectionID = "business-connection"
+	ctx := context.Background()
+	fields := map[string]string{
+		"business_connection_id": connectionID,
+		"chat_id":                "123",
+		"message_id":             "7",
+	}
+
+	t.Run("pin", func(t *testing.T) {
+		b := &Bot{client: &httpClient{t: t, resp: `true`, reqPath: "/bot/pinChatMessage", reqFields: fields}}
+		ok, err := b.PinChatMessage(ctx, &PinChatMessageParams{
+			BusinessConnectionID: connectionID,
+			ChatID:               123,
+			MessageID:            7,
+		})
+		if err != nil || !ok {
+			t.Fatalf("PinChatMessage = %t, %v, want true, nil", ok, err)
+		}
+	})
+
+	t.Run("unpin", func(t *testing.T) {
+		b := &Bot{client: &httpClient{t: t, resp: `true`, reqPath: "/bot/unpinChatMessage", reqFields: fields}}
+		ok, err := b.UnpinChatMessage(ctx, &UnpinChatMessageParams{
+			BusinessConnectionID: connectionID,
+			ChatID:               123,
+			MessageID:            7,
+		})
+		if err != nil || !ok {
+			t.Fatalf("UnpinChatMessage = %t, %v, want true, nil", ok, err)
+		}
+	})
+}
+
+func TestBot_GetGiftFilters(t *testing.T) {
+	const emptyGifts = `{"total_count":0,"gifts":[]}`
+	ctx := context.Background()
+
+	t.Run("user", func(t *testing.T) {
+		c := &httpClient{
+			t: t, resp: emptyGifts, reqPath: "/bot/getUserGifts",
+			reqFields: map[string]string{
+				"user_id":                        "42",
+				"exclude_unlimited":              "true",
+				"exclude_limited_upgradable":     "true",
+				"exclude_limited_non_upgradable": "true",
+				"exclude_unique":                 "true",
+				"exclude_from_blockchain":        "true",
+				"sort_by_price":                  "true",
+				"offset":                         "page-token",
+				"limit":                          "12",
+			},
+			absent: []string{"exclude_saved", "exclude_unsaved"},
+		}
+		b := &Bot{client: c}
+		gifts, err := b.GetUserGifts(ctx, &GetUserGiftsParams{
+			UserID:                      42,
+			ExcludeUnlimited:            true,
+			ExcludeLimitedUpgradable:    true,
+			ExcludeLimitedNonUpgradable: true,
+			ExcludeUnique:               true,
+			ExcludeFromBlockchain:       true,
+			SortByPrice:                 true,
+			Offset:                      "page-token",
+			Limit:                       12,
+		})
+		if err != nil || gifts == nil || gifts.Gifts == nil || len(gifts.Gifts) != 0 {
+			t.Fatalf("GetUserGifts = %+v, %v, want an empty gift list", gifts, err)
+		}
+	})
+
+	t.Run("chat", func(t *testing.T) {
+		c := &httpClient{
+			t: t, resp: emptyGifts, reqPath: "/bot/getChatGifts",
+			reqFields: map[string]string{
+				"chat_id":                        "@example",
+				"exclude_saved":                  "true",
+				"exclude_unsaved":                "true",
+				"exclude_unlimited":              "true",
+				"exclude_limited_upgradable":     "true",
+				"exclude_limited_non_upgradable": "true",
+				"exclude_unique":                 "true",
+				"exclude_from_blockchain":        "true",
+				"sort_by_price":                  "true",
+				"offset":                         "page-token",
+				"limit":                          "12",
+			},
+		}
+		b := &Bot{client: c}
+		gifts, err := b.GetChatGifts(ctx, &GetChatGiftsParams{
+			ChatID:                      "@example",
+			ExcludeSaved:                true,
+			ExcludeUnsaved:              true,
+			ExcludeUnlimited:            true,
+			ExcludeLimitedUpgradable:    true,
+			ExcludeLimitedNonUpgradable: true,
+			ExcludeUnique:               true,
+			ExcludeFromBlockchain:       true,
+			SortByPrice:                 true,
+			Offset:                      "page-token",
+			Limit:                       12,
+		})
+		if err != nil || gifts == nil || gifts.Gifts == nil || len(gifts.Gifts) != 0 {
+			t.Fatalf("GetChatGifts = %+v, %v, want an empty gift list", gifts, err)
+		}
+	})
 }
 
 func TestBot_RichMessageMethods(t *testing.T) {

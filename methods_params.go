@@ -669,14 +669,16 @@ type SetChatDescriptionParams struct {
 }
 
 type PinChatMessageParams struct {
-	ChatID              any  `json:"chat_id"`
-	MessageID           int  `json:"message_id"`
-	DisableNotification bool `json:"disable_notification,omitempty"`
+	BusinessConnectionID string `json:"business_connection_id,omitempty"`
+	ChatID               any    `json:"chat_id"`
+	MessageID            int    `json:"message_id"`
+	DisableNotification  bool   `json:"disable_notification,omitempty"`
 }
 
 type UnpinChatMessageParams struct {
-	ChatID    any `json:"chat_id"`
-	MessageID int `json:"message_id,omitempty"`
+	BusinessConnectionID string `json:"business_connection_id,omitempty"`
+	ChatID               any    `json:"chat_id"`
+	MessageID            int    `json:"message_id,omitempty"` // Required for a business connection.
 }
 
 type UnpinAllChatMessagesParams struct {
@@ -1086,7 +1088,7 @@ type SetStickerKeywordsParams struct {
 
 type SetStickerMaskPositionParams struct {
 	Sticker      string              `json:"sticker"`
-	MaskPosition models.MaskPosition `json:"mask_position"`
+	MaskPosition models.MaskPosition `json:"mask_position,omitempty"` // Leave zero to remove the mask position.
 }
 
 type SetStickerSetTitleParams struct {
@@ -1265,20 +1267,20 @@ type SendGameParams struct {
 }
 
 type SetGameScoreParams struct {
-	UserID             int64 `json:"user_id"`
-	Score              int   `json:"score"`
-	Force              bool  `json:"force,omitempty"`
-	DisableEditMessage bool  `json:"disable_edit_message,omitempty"`
-	ChatID             any   `json:"chat_id,omitempty"`
-	MessageID          int   `json:"message_id,omitempty"`
-	InlineMessageID    int   `json:"inline_message_id,omitempty"`
+	UserID             int64  `json:"user_id"`
+	Score              int    `json:"score"`
+	Force              bool   `json:"force,omitempty"`
+	DisableEditMessage bool   `json:"disable_edit_message,omitempty"`
+	ChatID             any    `json:"chat_id,omitempty"`
+	MessageID          int    `json:"message_id,omitempty"`
+	InlineMessageID    string `json:"inline_message_id,omitempty"`
 }
 
 type GetGameHighScoresParams struct {
-	UserID          int64 `json:"user_id"`
-	ChatID          any   `json:"chat_id,omitempty"`
-	MessageID       int   `json:"message_id,omitempty"`
-	InlineMessageID int   `json:"inline_message_id,omitempty"`
+	UserID          int64  `json:"user_id"`
+	ChatID          any    `json:"chat_id,omitempty"`
+	MessageID       int    `json:"message_id,omitempty"`
+	InlineMessageID string `json:"inline_message_id,omitempty"`
 }
 
 // SendGiftParams https://core.telegram.org/bots/api#sendgift
@@ -1471,16 +1473,30 @@ type GiftPremiumSubscriptionParams struct {
 
 // GetUserGiftsParams https://core.telegram.org/bots/api#getusergifts
 type GetUserGiftsParams struct {
-	UserID int64  `json:"user_id"`
-	Offset string `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	UserID                      int64  `json:"user_id"`
+	ExcludeUnlimited            bool   `json:"exclude_unlimited,omitempty"`
+	ExcludeLimitedUpgradable    bool   `json:"exclude_limited_upgradable,omitempty"`
+	ExcludeLimitedNonUpgradable bool   `json:"exclude_limited_non_upgradable,omitempty"`
+	ExcludeUnique               bool   `json:"exclude_unique,omitempty"`
+	ExcludeFromBlockchain       bool   `json:"exclude_from_blockchain,omitempty"`
+	SortByPrice                 bool   `json:"sort_by_price,omitempty"`
+	Offset                      string `json:"offset,omitempty"`
+	Limit                       int    `json:"limit,omitempty"`
 }
 
 // GetChatGiftsParams https://core.telegram.org/bots/api#getchatgifts
 type GetChatGiftsParams struct {
-	ChatID any    `json:"chat_id"`
-	Offset string `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	ChatID                      any    `json:"chat_id"`
+	ExcludeUnsaved              bool   `json:"exclude_unsaved,omitempty"`
+	ExcludeSaved                bool   `json:"exclude_saved,omitempty"`
+	ExcludeUnlimited            bool   `json:"exclude_unlimited,omitempty"`
+	ExcludeLimitedUpgradable    bool   `json:"exclude_limited_upgradable,omitempty"`
+	ExcludeLimitedNonUpgradable bool   `json:"exclude_limited_non_upgradable,omitempty"`
+	ExcludeUnique               bool   `json:"exclude_unique,omitempty"`
+	ExcludeFromBlockchain       bool   `json:"exclude_from_blockchain,omitempty"`
+	SortByPrice                 bool   `json:"sort_by_price,omitempty"`
+	Offset                      string `json:"offset,omitempty"`
+	Limit                       int    `json:"limit,omitempty"`
 }
 
 // SendMessageDraftParams https://core.telegram.org/bots/api#sendmessagedraft

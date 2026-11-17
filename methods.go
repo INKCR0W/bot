@@ -1003,10 +1003,9 @@ func (b *Bot) SendGame(ctx context.Context, params *SendGameParams) (*models.Mes
 }
 
 // SetGameScore https://core.telegram.org/bots/api#setgamescore
+// A successful inline score update returns a nil message.
 func (b *Bot) SetGameScore(ctx context.Context, params *SetGameScoreParams) (*models.Message, error) {
-	result := &models.Message{}
-	err := b.rawRequest(ctx, "setGameScore", params, result)
-	return result, err
+	return b.editMethodRequest(ctx, "setGameScore", params)
 }
 
 // GetGameHighScores https://core.telegram.org/bots/api#getgamehighscores
