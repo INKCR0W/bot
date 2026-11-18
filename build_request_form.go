@@ -191,8 +191,8 @@ func (form *requestForm) build(params any) (int, error) {
 
 	var fieldsCount int
 
-	// answerInlineQuery treats an omitted cache_time as 300 seconds. DisableCache
-	// is the only way to send 0, and it replaces CacheTime so the part is written once.
+	// DisableCache sends cache_time 0 and replaces CacheTime, so the part is
+	// written once.
 	inlineQuery, _ := params.(*AnswerInlineQueryParams)
 	if inlineQuery != nil && inlineQuery.DisableCache {
 		if err := addFormFieldString(form, "cache_time", "0"); err != nil {

@@ -2247,6 +2247,7 @@ func TestBot_API104(t *testing.T) {
 
 func TestAnswerInlineQuery_CacheTime(t *testing.T) {
 	t.Parallel()
+	cacheTime := 30
 
 	t.Run("DisableCache", func(t *testing.T) {
 		c := &httpClient{t: t, resp: `true`, reqFields: map[string]string{
@@ -2256,7 +2257,6 @@ func TestAnswerInlineQuery_CacheTime(t *testing.T) {
 		b := &Bot{client: c}
 		params := &AnswerInlineQueryParams{
 			InlineQueryID: "test-query-id",
-			CacheTime:     0,
 			DisableCache:  true,
 		}
 		resp, err := b.AnswerInlineQuery(context.Background(), params)
@@ -2278,7 +2278,7 @@ func TestAnswerInlineQuery_CacheTime(t *testing.T) {
 		b := &Bot{client: c}
 		params := &AnswerInlineQueryParams{
 			InlineQueryID: "test-query-id",
-			CacheTime:     30,
+			CacheTime:     &cacheTime,
 		}
 		resp, err := b.AnswerInlineQuery(context.Background(), params)
 		assertNoErr(t, err)
@@ -2291,14 +2291,13 @@ func TestAnswerInlineQuery_CacheTime(t *testing.T) {
 		}
 	})
 
-	t.Run("ZeroOmitted", func(t *testing.T) {
+	t.Run("NilOmitted", func(t *testing.T) {
 		c := &httpClient{t: t, resp: `true`, reqFields: map[string]string{
 			"inline_query_id": "test-query-id",
 		}, absent: []string{"cache_time"}}
 		b := &Bot{client: c}
 		params := &AnswerInlineQueryParams{
 			InlineQueryID: "test-query-id",
-			CacheTime:     0,
 		}
 		resp, err := b.AnswerInlineQuery(context.Background(), params)
 		assertNoErr(t, err)
@@ -2320,7 +2319,7 @@ func TestAnswerInlineQuery_CacheTime(t *testing.T) {
 		b := &Bot{client: c}
 		params := &AnswerInlineQueryParams{
 			InlineQueryID: "test-query-id",
-			CacheTime:     30,
+			CacheTime:     &cacheTime,
 			IsPersonal:    true,
 			DisableCache:  true,
 		}

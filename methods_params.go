@@ -1119,8 +1119,8 @@ type AnswerInlineQueryParams struct {
 	IsPersonal    bool                             `json:"is_personal,omitempty"`
 	NextOffset    string                           `json:"next_offset,omitempty"`
 	Button        *models.InlineQueryResultsButton `json:"button,omitempty"`
-	// DisableCache sends cache_time 0. A zero CacheTime is omitted, and Telegram
-	// then caches results for 300 seconds. When set, the flag overrides CacheTime.
+	// DisableCache sends cache_time 0, like a CacheTime pointing to 0. When set,
+	// the flag overrides CacheTime.
 	DisableCache bool `json:"-"`
 }
 
