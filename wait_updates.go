@@ -107,6 +107,7 @@ func (b *Bot) waitUpdates(run *updatesRun, handlers *sync.WaitGroup) {
 			}
 			invoke := func() {
 				defer handlers.Done()
+				defer item.claim.finish()
 				handler(run.ctx, b, item.update)
 			}
 			handlers.Add(1)
@@ -119,7 +120,7 @@ func (b *Bot) waitUpdates(run *updatesRun, handlers *sync.WaitGroup) {
 	}
 }
 
-func (b *Bot) prepareUpdate(run *updatesRun, item queuedUpdate) (HandlerFunc, bool) {
+func (b *Bot) prepareUpdate(run *updatesRun, item queuedUpdate) (handler HandlerFunc, ok bool) {
 	if run.webhook {
 		// The request answers 200 once it receives this handoff, so from here
 		// on the update must reach its handler even if the run stops.
@@ -134,6 +135,13 @@ func (b *Bot) prepareUpdate(run *updatesRun, item queuedUpdate) (HandlerFunc, bo
 		// Leave it to be polled again: the run is stopping, or the poller has
 		// already given up on it.
 		return nil, false
+	} else {
+		defer func() {
+			// Preparation that exits counts as handled, as it counts as dispatched.
+			if !ok {
+				item.claim.finish()
+			}
+		}()
 	}
 
 	return applyMiddlewares(b.findHandler(item.update), b.middlewares...), true

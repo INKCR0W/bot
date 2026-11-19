@@ -144,7 +144,21 @@ func WithNotAsyncHandlers() Option {
 	}
 }
 
-// WithInitialOffset sets the initial getUpdates offset. A negative offset starts
+// WithConfirmUpdatesAfterHandlers makes Start confirm a polled update only after
+// its handler returns, including through runtime.Goexit, so an update whose
+// handler was interrupted by cancellation is delivered again when polling
+// resumes. The next batch is not requested until every handler of the current
+// one returns: a slow handler delays every later update, and a handler must not
+// wait for a later update. It has no effect on webhooks.
+func WithConfirmUpdatesAfterHandlers() Option {
+	return func(b *Bot) {
+		b.confirmUpdatesAfterHandlers = true
+	}
+}
+
+// WithInitialOffset sets the offset parameter of the first getUpdates request,
+// that is the identifier of the first update to return. Unlike upstream, it is
+// not incremented: to resume after update N, pass N+1. A negative offset starts
 // at that position from the end of the queue and discards older updates. It is
 // retried when the SDK can establish that the request never reached Telegram
 // or that Telegram rejected it before applying the offset. If the outcome is

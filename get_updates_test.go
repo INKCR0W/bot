@@ -1099,3 +1099,160 @@ func TestBot_NegativeOffsetAfterDialFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestBot_ConfirmUpdatesAfterHandlersWaitsForBatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	release := make(chan struct{})
+	offsets := make(chan string, 3)
+	var calls int
+	b, err := New("xxx", WithSkipGetMe(), WithConfirmUpdatesAfterHandlers(),
+		WithDefaultHandler(func(ctx context.Context, _ *Bot, _ *models.Update) {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			calls++
+			offsets <- req.FormValue("offset")
+			if calls == 1 {
+				return getUpdatesJSONResponse(`{"ok":true,"result":[{"update_id":7}]}`), nil
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		b.Start(ctx)
+	}()
+	if got := waitForUpdateTest(t, offsets, "first poll"); got != "1" {
+		t.Errorf("first poll offset = %q, want 1", got)
+	}
+	select {
+	case got := <-offsets:
+		t.Errorf("polled with offset %q before the handler returned", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if got := waitForUpdateTest(t, offsets, "second poll"); got != "8" {
+		t.Errorf("second poll offset = %q, want 8", got)
+	}
+	cancel()
+	waitForUpdateTest(t, stopped, "polling to stop")
+}
+
+func TestBot_ConfirmUpdatesAfterHandlersSurvivesGoexit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	offsets := make(chan string, 3)
+	var calls int
+	b, err := New("xxx", WithSkipGetMe(), WithConfirmUpdatesAfterHandlers(),
+		WithDefaultHandler(func(context.Context, *Bot, *models.Update) {
+			runtime.Goexit()
+		}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			calls++
+			offsets <- req.FormValue("offset")
+			if calls == 1 {
+				return getUpdatesJSONResponse(`{"ok":true,"result":[{"update_id":7}]}`), nil
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		b.Start(ctx)
+	}()
+	waitForUpdateTest(t, offsets, "first poll")
+	if got := waitForUpdateTest(t, offsets, "poll after the handler exited"); got != "8" {
+		t.Errorf("second poll offset = %q, want 8", got)
+	}
+	cancel()
+	waitForUpdateTest(t, stopped, "polling to stop")
+}
+
+// With WithConfirmUpdatesAfterHandlers, cancellation confirms only the updates
+// before the first one whose handler has not returned.
+func TestBot_ConfirmUpdatesAfterHandlersKeepsRunningUpdate(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	secondStarted := make(chan struct{})
+	// One synchronous worker handles 40 to completion before it starts 42.
+	b, err := New("xxx", WithSkipGetMe(), WithWorkers(1), WithNotAsyncHandlers(), WithConfirmUpdatesAfterHandlers(),
+		WithDefaultHandler(func(ctx context.Context, _ *Bot, update *models.Update) {
+			if update.ID == 42 {
+				close(secondStarted)
+				<-ctx.Done()
+				// Return only after polling has given up on this update.
+				time.Sleep(50 * time.Millisecond)
+			}
+		}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			if req.FormValue("offset") == "1" {
+				return getUpdatesJSONResponse(`{"ok":true,"result":[{"update_id":40},{"update_id":42}]}`), nil
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		b.Start(ctx)
+	}()
+	waitForUpdateTest(t, secondStarted, "second handler to start")
+	cancel()
+	waitForUpdateTest(t, stopped, "polling to stop")
+	if got := atomic.LoadInt64(&b.nextUpdateOffset); got != 41 {
+		t.Errorf("next update offset = %d, want 41", got)
+	}
+}
+
+// A matcher that exits still lets the batch be confirmed.
+func TestBot_ConfirmUpdatesAfterHandlersSurvivesPreparationGoexit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	offsets := make(chan string, 3)
+	b, err := New("xxx", WithSkipGetMe(), WithWorkers(2), WithConfirmUpdatesAfterHandlers(),
+		WithDefaultHandler(func(context.Context, *Bot, *models.Update) {}),
+		WithHTTPClient(time.Second, getUpdatesClientFunc(func(req *http.Request) (*http.Response, error) {
+			offsets <- req.FormValue("offset")
+			if req.FormValue("offset") == "1" {
+				return getUpdatesJSONResponse(`{"ok":true,"result":[{"update_id":7}]}`), nil
+			}
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.RegisterHandlerMatchFunc(func(*models.Update) bool { runtime.Goexit(); return false }, b.defaultHandlerFunc)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		b.Start(ctx)
+	}()
+	waitForUpdateTest(t, offsets, "first poll")
+	if got := waitForUpdateTest(t, offsets, "poll after the matcher exited"); got != "8" {
+		t.Errorf("second poll offset = %q, want 8", got)
+	}
+	cancel()
+	waitForUpdateTest(t, stopped, "polling to stop")
+}

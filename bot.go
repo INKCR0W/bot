@@ -53,6 +53,8 @@ type Bot struct {
 	workers            int
 	notAsyncHandlers   bool
 
+	confirmUpdatesAfterHandlers bool
+
 	defaultHandlerFunc HandlerFunc
 
 	errorsHandler ErrorsHandler
@@ -179,15 +181,18 @@ func (b *Bot) StartWebhook(ctx context.Context) {
 // a batch is dispatched only as fast as its handlers run. On cancellation,
 // Start waits for dispatched handlers before returning. When polling resumes
 // after cancellation, it starts from the first update of the batch that was not
-// dispatched, so updates handled after it may be delivered again. Telegram
-// learns the new offset only from the next poll, so after a process restart it
-// may deliver the last batch again: delivery is at least once. Handlers receive
-// a context derived from ctx and canceled when the run stops. They should
-// return when it is canceled. If every worker exits early, such as through
-// runtime.Goexit in a matcher or in a handler run with WithNotAsyncHandlers,
-// the run stops. If another Start or StartWebhook is running on the same Bot,
-// it waits for that run to end first. Calling it from a handler of the running
-// Bot therefore blocks until the ctx passed to that call is canceled.
+// dispatched, so updates handled after it may be delivered again. With
+// WithConfirmUpdatesAfterHandlers, an update counts only once its handler
+// returns, so updates whose handlers were still running are delivered again
+// too. Telegram learns the new offset only from the next poll, so after a
+// process restart it may deliver the last batch again: delivery is at least
+// once. Handlers receive a context derived from ctx and canceled when the run
+// stops. They should return when it is canceled. If every worker exits early,
+// such as through runtime.Goexit in a matcher or in a handler run with
+// WithNotAsyncHandlers, the run stops. If another Start or StartWebhook is
+// running on the same Bot, it waits for that run to end first. Calling it from
+// a handler of the running Bot therefore blocks until the ctx passed to that
+// call is canceled.
 func (b *Bot) Start(ctx context.Context) {
 	b.start(ctx, false)
 }

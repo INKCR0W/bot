@@ -250,7 +250,8 @@ b, err := bot.New("YOUR_BOT_TOKEN_FROM_BOTFATHER", opts...)
 - `WithWorkers` - set the number of workers that are processing the Updates channel, by default 1
 - `UseTestEnvironment()` - use test environment
 - `WithNotAsyncHandlers()` - allows to run handlers in the main goroutine
-- `WithInitialOffset(offset int64)` - allows to set initial offset for getUpdates method
+- `WithInitialOffset(offset int64)` - set the `offset` of the first getUpdates request. It is not incremented: to resume after update N, pass N+1
+- `WithConfirmUpdatesAfterHandlers()` - confirm a polled update only after its handler returns, so an interrupted update is delivered again. Polling waits for every handler of the batch
 
 ## Message.Text and CallbackQuery.Data handlers
 

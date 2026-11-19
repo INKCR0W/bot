@@ -128,6 +128,9 @@ func (b *Bot) getUpdates(ctx context.Context, queue chan<- queuedUpdate) {
 			}
 
 			claim := &pollClaim{dispatched: make(chan struct{})}
+			if b.confirmUpdatesAfterHandlers {
+				claim.handled = make(chan struct{})
+			}
 			select {
 			case <-ctx.Done():
 				b.confirmDispatched(ctx, batch)
@@ -235,6 +238,15 @@ const (
 type pollClaim struct {
 	state      int32
 	dispatched chan struct{}
+	// handled is set with WithConfirmUpdatesAfterHandlers and closed once the
+	// update's handler returns, or once its preparation exits.
+	handled chan struct{}
+}
+
+func (c *pollClaim) finish() {
+	if c != nil && c.handled != nil {
+		close(c.handled)
+	}
 }
 
 func (c *pollClaim) take() bool {
@@ -263,16 +275,32 @@ func (b *Bot) confirmDispatched(ctx context.Context, batch []batchUpdate) bool {
 	return settled == len(batch)
 }
 
-// wait reports whether the update was dispatched. On cancellation it abandons
-// the update unless a worker has already taken it.
+// wait reports whether the update was dispatched, or handled with
+// WithConfirmUpdatesAfterHandlers. On cancellation it abandons the update unless
+// a worker has already taken it.
 func (u batchUpdate) wait(ctx context.Context) bool {
 	if u.claim == nil {
 		return true
 	}
 	select {
 	case <-u.claim.dispatched:
+	case <-ctx.Done():
+		if u.claim.abandon() {
+			return false
+		}
+	}
+	if u.claim.handled == nil {
+		return true
+	}
+	select {
+	case <-u.claim.handled:
+		return true
+	default:
+	}
+	select {
+	case <-u.claim.handled:
 		return true
 	case <-ctx.Done():
-		return !u.claim.abandon()
+		return false
 	}
 }
