@@ -292,6 +292,8 @@ func (u batchUpdate) wait(ctx context.Context) bool {
 	if u.claim.handled == nil {
 		return true
 	}
+	// The poller can get here only after cancellation. Check handled first so
+	// a select between two ready cases cannot drop an update already handled.
 	select {
 	case <-u.claim.handled:
 		return true
